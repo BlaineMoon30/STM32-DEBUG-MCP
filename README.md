@@ -1,10 +1,11 @@
 # STM32 Debug MCP Server (English)
 
-A local MCP server to build, flash, and debug STM32 boards from VSCode + Claude Code.
-Targets STM32CubeIDE Makefile/CMake projects. With natural-language requests like
-"a HardFault happened at runtime, debug it for me," Claude picks and runs the right tools.
+A local MCP server to build, flash, and debug STM32 boards from VSCode + Claude Code
+(or VSCode + Codex). Targets STM32CubeIDE Makefile/CMake projects. With natural-language
+requests like "a HardFault happened at runtime, debug it for me," the AI agent picks and
+runs the right tools.
 
-Scope: VSCode-based workflow · STM32CubeIDE Makefile/CMake projects · selected STM32 families
+Scope: VSCode-based workflow (Claude Code or Codex) · STM32CubeIDE Makefile/CMake projects · selected STM32 families
 
 Supported OS : Windows
 
@@ -13,8 +14,11 @@ Supported OS : Windows
 ## Step 1. Install
 
 1. **STM32CubeIDE** — provides OpenOCD and arm-none-eabi-gdb
+   - https://www.st.com/en/development-tools/stm32cubeide.html
 2. **STM32CubeCLT** — provides STM32_Programmer_CLI and SVD files
-3. **Python 3.11+** from python.org (NOT the Microsoft Store stub)
+   - https://www.st.com/en/development-tools/stm32cubeclt.html
+3. **Python 3.11+** from python.org (NOT the Microsoft Store stub) — recommended 3.14.5
+   - https://www.python.org/downloads/
    - Check "Add python.exe to PATH" during install. Use `py` to run.
 4. Install packages:
    ```
@@ -76,6 +80,18 @@ claude mcp add --scope user stm32-probe -- cmd /c py D:/STM32_MCP/stm32_probe_mc
 Verify connection:
 ```powershell
 claude mcp list      # expect "stm32-probe ... ✓ Connected"
+```
+
+### Or register with Codex
+
+Same server, Codex CLI. Run it in the terminal:
+```powershell
+codex mcp add stm32-probe -- cmd /c py D:\STM32_MCP\stm32_probe_mcp.py
+```
+
+Or, in the VSCode Codex plugin, enter the same command:
+```
+codex mcp add stm32-probe -- cmd /c py D:\STM32_MCP\stm32_probe_mcp.py
 ```
 
 ---

@@ -1,10 +1,10 @@
 # STM32 Debug MCP Server (한국어)
 
-VSCode + Claude Code에서 STM32 보드를 빌드·플래시·디버깅하는 로컬 MCP 서버입니다.
-CubeIDE의 Makefile/CMake 프로젝트를 대상으로 하며, "런타임 중 HardFault가 났는데
-직접 디버깅해줘" 같은 자연어 요청에 Claude가 도구를 골라 실행합니다.
+VSCode + Claude Code(또는 VSCode + Codex)에서 STM32 보드를 빌드·플래시·디버깅하는
+로컬 MCP 서버입니다. CubeIDE의 Makefile/CMake 프로젝트를 대상으로 하며, "런타임 중
+HardFault가 났는데 직접 디버깅해줘" 같은 자연어 요청에 AI 에이전트가 도구를 골라 실행합니다.
 
-대상: VSCode 기반 개발 · STM32CubeIDE Makefile/CMake 프로젝트 · STM32 일부 제품군
+대상: VSCode 기반 개발(Claude Code 또는 Codex) · STM32CubeIDE Makefile/CMake 프로젝트 · STM32 일부 제품군
 
 Supported OS : Windows
 
@@ -13,8 +13,11 @@ Supported OS : Windows
 ## Step 1. 설치
 
 1. **STM32CubeIDE** 설치 — OpenOCD, arm-none-eabi-gdb 제공
+   - https://www.st.com/en/development-tools/stm32cubeide.html
 2. **STM32CubeCLT** 설치 — STM32_Programmer_CLI, SVD 파일 제공
-3. **Python 3.11+** 설치 (Microsoft Store 스텁 말고 python.org 정식본)
+   - https://www.st.com/en/development-tools/stm32cubeclt.html
+3. **Python 3.11+** 설치 (Microsoft Store 스텁 말고 python.org 정식본) — 권장 3.14.5
+   - https://www.python.org/downloads/
    - 설치 시 "Add python.exe to PATH" 체크. 실행은 `py` 사용 권장
 4. 패키지 설치:
    ```
@@ -76,6 +79,18 @@ claude mcp add --scope user stm32-probe -- cmd /c py D:/STM32_MCP/stm32_probe_mc
 연결 확인:
 ```powershell
 claude mcp list      # "stm32-probe ... ✓ Connected" 확인
+```
+
+### Codex에 등록
+
+같은 서버를 Codex CLI에서도 등록할 수 있습니다. 터미널에서 입력:
+```powershell
+codex mcp add stm32-probe -- cmd /c py D:\STM32_MCP\stm32_probe_mcp.py
+```
+
+또는 VSCode의 Codex 플러그인에서 아래 명령을 입력해 실행:
+```
+codex mcp add stm32-probe -- cmd /c py D:\STM32_MCP\stm32_probe_mcp.py
 ```
 
 ---

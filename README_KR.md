@@ -25,15 +25,32 @@ Supported OS : Windows
 
 ## Step 2. 서버 파일 배치
 
-`stm32_probe_mcp.py` 를 폴더에 저장 (예: `D:/STM32_MCP/`).
+아래 **두 가지**를 같은 폴더에 나란히 복사하세요 (예: `D:/STM32_MCP/`):
 
-파일 상단에서 **이 한 줄만** 본인 프로젝트에 맞게 수정:
-
-```python
-BUILD_DIR = r"D:/.../STM32CubeIDE/Debug"   # .elf 가 생성되는 폴더
+```
+D:/STM32_MCP/
+├─ stm32_probe_mcp.py     # 진입점 — 이 파일을 실행/등록
+└─ stm32mcp/              # 실제 도구가 든 패키지 (.py 옆에 같이 둘 것)
+   ├─ core.py  chips.py  svd.py
+   └─ tools_setup.py  tools_probe.py  tools_debug.py
+      tools_watch.py  tools_svd.py  tools_hotplug.py
 ```
 
-> 나머지 경로(OpenOCD/GDB/CLI/SVD)는 자동 탐색되므로 수정 불필요.
+진입점이 자기 폴더를 `sys.path` 에 추가하므로 Claude Code가 어느 디렉터리에서
+실행하든 `stm32mcp/` 를 찾습니다 — 두 파일을 항상 같이 두기만 하면 됩니다.
+
+**코드 수정 불필요** — `.elf` 가 생성되는 빌드 폴더는 이제 실행 시점에 자동으로
+다음 우선순위로 결정됩니다:
+
+1. **런타임 지정** — Claude에게 그냥 말하세요: *"빌드 폴더를 D:/myproj/Debug 로 지정해줘"*
+   (`set_build_dir` 도구 호출, 해당 세션 동안 적용)
+2. **`STM32_BUILD_DIR` 환경변수** — 등록 시 지정 (Step 4 / 자주 막히는 곳 참고)
+3. **자동 탐색** — 현재 작업 폴더에서 `.elf` 가 든 폴더를 찾음
+   (`Debug/` → `Release/` → 가장 얕은 경로 순으로 우선)
+4. 못 찾으면 도구가 지정해달라고 안내합니다 — **하드코딩 경로 없음**.
+
+> 나머지 경로(OpenOCD/GDB/CLI/SVD)도 자동 탐색되므로 수정 불필요.
+> 언제든 *"지금 빌드 폴더 어디야?"* 로 현재 경로를 확인하세요 (`show_build_dir`).
 
 ---
 
@@ -68,13 +85,26 @@ claude mcp list      # "stm32-probe ... ✓ Connected" 확인
 VSCode에서 Claude Code 세션을 **새로 시작**(등록 후 반영). `/mcp` 로 도구 확인 후:
 
 ```
-check_setup 실행해줘            # 경로 자동 탐색 점검 (전부 ✅면 OK)
+check_setup 실행해줘            # 경로 자동 탐색 + 빌드 폴더 출처 점검
+지금 빌드 폴더 어디야?          # 현재 빌드 폴더 확인 (show_build_dir)
+빌드 폴더를 D:/proj/Debug 로 지정해줘   # 내 프로젝트로 지정 (set_build_dir)
 연결된 probe 알려줘
 무슨 칩이야?                    # 칩 자동 감지
 프로젝트 빌드해줘               # Makefile/CMake 빌드
 보드에 플래시해줘
 런타임에 HardFault가 났는데 직접 디버깅해줘
+세션 없이 0x20000000 메모리 읽어줘        # HotPlug, 멈추지 않고
+세션 없이 운영 중 보드 SPI1 해석해줘      # HotPlug 페리페럴
 ```
+
+### HotPlug: 디버그 세션 없이 운영 중인 보드 확인
+`hotplug_read_memory` 와 `hotplug_read_peripheral` 는 CubeProgrammer(`mode=HOTPLUG`)로
+붙어서 OpenOCD/GDB **없이**, 이상적으로는 펌웨어를 **멈추지 않고** 메모리를 읽거나
+페리페럴을 해석합니다 — 이미 현장에서 돌고 있는 보드를 가볍게 들여다볼 때 유용합니다.
+
+> 주의: 코어 레지스터(R0–R15/PC/SP)는 HotPlug로 **안정적으로 못 읽습니다**
+> (디버그 세션의 `read_registers` 사용). 일부 환경에선 HotPlug가 그래도 halt/reset
+> 될 수 있으니 본인 보드에서 비침습 여부를 확인하세요.
 
 ### 예제: "런타임 중 HardFault, 직접 디버깅해줘"
 이 한마디로 Claude가 아래를 자동 수행합니다.
@@ -101,14 +131,19 @@ check_setup 실행해줘            # 경로 자동 탐색 점검 (전부 ✅면
 | `✗ Failed to connect` | 서버 직접 실행해 에러 확인 / `fastmcp` 설치 / `py` 사용 |
 | 플래시·디버그 실패 | CubeIDE·CubeProgrammer GUI 닫기 (ST-Link 점유 충돌) |
 | 경로 자동탐색 실패 | `check_setup` 으로 ❌ 항목 확인 → 환경변수 지정 (아래) |
+| "빌드 폴더를 찾지 못했습니다" | *"빌드 폴더를 .../Debug 로 지정해줘"*, 프로젝트 폴더에서 실행, 또는 `STM32_BUILD_DIR` 설정 |
 
 자동 탐색이 빗나가면 등록 시 환경변수로 지정 (서버 이름 뒤에 `-e`):
 ```powershell
 claude mcp add --scope user stm32-probe ^
   -e STM32_CUBEIDE_ROOT=D:/Tools/ST/STM32CubeIDE_x ^
   -e STM32_SVD_DIR=D:/Tools/ST/STM32CubeCLT_x/STMicroelectronics_CMSIS_SVD ^
+  -e STM32_BUILD_DIR=D:/myproj/STM32CubeIDE/Debug ^
   -- cmd /c py D:/STM32_MCP/stm32_probe_mcp.py
 ```
+
+> `STM32_BUILD_DIR` 은 선택사항 — 생략하면 자동 탐색이 `.elf` 를 찾거나,
+> 실행 중 Claude에게 빌드 폴더를 말해주면 됩니다(`set_build_dir`).
 
 ---
 
@@ -116,8 +151,9 @@ claude mcp add --scope user stm32-probe ^
 
 1. CubeIDE + CubeCLT + 정식 Python 설치
 2. `py -m pip install fastmcp pygdbmi`
-3. 서버 파일 복사 → `BUILD_DIR` 만 수정
+3. `stm32_probe_mcp.py` **와** `stm32mcp/` 폴더를 함께 복사 (코드 수정 불필요)
 4. Step 4 등록 명령 실행
-5. 경로는 자동 탐색 → 막히면 `check_setup` 확인
+5. 경로는 자동 탐색 → 막히면 `check_setup` 확인. 프로젝트 지정은
+   *"빌드 폴더를 .../Debug 로 지정해줘"*, `STM32_BUILD_DIR`, 또는 프로젝트 폴더에서 실행.
 
-> 수정할 코드는 `BUILD_DIR` 한 줄. 나머지는 자동 탐색됩니다.
+> 이제 수정할 코드가 없습니다 — 빌드 폴더와 모든 도구 경로가 자동으로 결정됩니다.

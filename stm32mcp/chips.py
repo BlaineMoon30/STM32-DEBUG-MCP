@@ -54,6 +54,11 @@ def map_chip(device_name):
     if not device_name:
         return None
     dn = device_name.upper().replace(" ", "")
+    # CubeProgrammer reports some STM32N6 parts with a malformed Device name
+    # that drops the 'M' (e.g. "ST32N657" instead of "STM32N657"). Repair the
+    # prefix so the matching below still works and the chip auto-detects.
+    if dn.startswith("ST32") and not dn.startswith("STM32"):
+        dn = "STM" + dn[2:]
     if dn.startswith("STM32L4"):
         marker = dn[5:8]
         if marker in _L4_PLUS_LETTERS:

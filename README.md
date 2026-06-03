@@ -139,6 +139,26 @@ From that one request, Claude runs the following automatically:
 
 ---
 
+## Known issues
+
+### STM32N6 (e.g. STM32N6-DK): re-run firmware **without** `reset`
+
+The N6 boots from RAM (no internal user flash), so a `reset` will **not** re-run the
+ELF you loaded into RAM — it can even drop the core into a HardFault. To re-run the
+firmware on an N6 board, **do not reset**. Instead:
+
+1. **Don't reset.** Start a **new** debug session and make sure the core is **halted**.
+2. While halted, `load_image` to reload the ELF back into RAM.
+3. `set_pc` to the **ELF entry point**.
+4. `cont` to run.
+5. To confirm it's actually running, briefly `halt`, check it's **not** a HardFault,
+   then `cont` again.
+
+> In short: new session → halted → `load_image` (RAM) → `set_pc` (entry point) →
+> `cont`, and verify with a quick `halt` → check → `cont`. Avoid `reset` on the N6.
+
+---
+
 ## Common issues
 
 | Symptom | Fix |

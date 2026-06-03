@@ -137,6 +137,25 @@ check_setup 실행해줘            # 경로 자동 탐색 + 빌드 폴더 출�
 
 ---
 
+## 알려진 이슈
+
+### STM32N6 (예: STM32N6-DK): `reset` 하지 말고 펌웨어 다시 실행
+
+N6은 RAM 부팅(내부 유저 플래시 없음)이라 `reset` 으로는 RAM에 올린 ELF가 **다시
+실행되지 않고**, 코어가 HardFault로 빠질 수도 있습니다. N6 보드에서 펌웨어를 다시
+실행하려면 **리셋하지 말고** 아래처럼 하세요:
+
+1. **리셋하지 말고**, 디버그 세션을 **새로** 연 뒤 코어가 **halted** 상태인지 확인.
+2. halted 상태에서 `load_image` 로 RAM에 ELF를 다시 로드.
+3. **ELF entry point** 로 `set_pc`.
+4. `cont` 로 실행.
+5. 실행 확인은 잠깐 `halt` 해서 **HardFault가 아닌지** 본 뒤 다시 `cont`.
+
+> 요약: 새 세션 → halted → `load_image`(RAM) → `set_pc`(entry point) → `cont`,
+> 확인은 잠깐 `halt` → 점검 → `cont`. N6에서는 `reset` 을 피하세요.
+
+---
+
 ## 자주 막히는 곳
 
 | 증상 | 해결 |

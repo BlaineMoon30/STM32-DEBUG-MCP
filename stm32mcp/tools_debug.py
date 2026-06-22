@@ -78,11 +78,37 @@ def start_debug(elf_path: str = "", chip: str = "") -> str:
 
     core.set_active_cfg(target_cfg)
 
+    # Some newer ST target cfgs (e.g. stm32c5x) program flash via an ST internal
+    # flash loader (*.stldr) and deliberately abort at startup unless
+    # INTERNAL_FLASH_LOADERS is defined. Detect that from the cfg text and inject
+    # the loader matching this chip's DBGMCU DEV_ID before sourcing the cfg.
+    loader_args = []
+    loader_note = ""
+    cfg_path = os.path.join(scripts, "target", target_cfg)
+    needs_loader = False
+    try:
+        with open(cfg_path, "r", encoding="utf-8", errors="ignore") as f:
+            needs_loader = "INTERNAL_FLASH_LOADERS" in f.read()
+    except OSError:
+        needs_loader = False
+    if needs_loader:
+        dev_id = chips.detect_device_id()
+        loader = core.find_internal_flash_loader(dev_id)
+        if loader:
+            loader_args = ["-c", "set INTERNAL_FLASH_LOADERS { {%s} }" % loader]
+            loader_note = f"\ninternal flash loader: {loader} (DEV_ID {dev_id})"
+        else:
+            loader_note = (
+                f"\nWarning: {target_cfg} needs an ST internal flash loader but "
+                f"none was found for DEV_ID {dev_id!r} under the CubeProgrammer "
+                "FlashLoader dir (set STM32_FLASHLOADER_DIR). OpenOCD may abort.")
+
     # -- Launch OpenOCD (interface unified to stlink-dap + dapdirect_swd) --
     cmd = [
         openocd, "-s", scripts,
         "-f", "interface/stlink-dap.cfg",
         "-c", "transport select dapdirect_swd",
+        *loader_args,
         "-f", f"target/{target_cfg}",
     ]
     try:
@@ -120,7 +146,7 @@ def start_debug(elf_path: str = "", chip: str = "") -> str:
         warn = ("\n\nWarning: symbol load may have failed. Check the ELF path:\n"
                 f"   {elf_norm}\n   (verify the file exists and the path is correct)")
 
-    return (f"Debug session started.\n{info_line}\nELF: {elf_norm}\n"
+    return (f"Debug session started.\n{info_line}{loader_note}\nELF: {elf_norm}\n"
             f"gdbserver: localhost:{core.GDB_PORT}\n\n" + "\n".join([sym, tgt]) + warn)
 
 

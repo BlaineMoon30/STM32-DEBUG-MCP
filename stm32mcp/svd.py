@@ -15,23 +15,43 @@ _svd_periph_cache = {}    # {(svd_file, periph): (base, regs)}
 
 
 def find_svd_dir():
-    """Locate the folder that contains the .svd files."""
+    """Locate the folder that contains the .svd files (newest install wins).
+
+    An explicit STM32_SVD_DIR env var is honored first. Otherwise every candidate
+    is scanned for an SVD folder (directly or via a nested *CMSIS_SVD dir) and the
+    newest by natural/semantic version is chosen, so a CLT/CubeIDE upgrade is
+    picked up automatically instead of sticking to a pinned version.
+    """
     global _svd_dir_cache
     if _svd_dir_cache is not None:
         return _svd_dir_cache
-    for cand in core._SVD_DIR_CANDIDATES:
-        if not cand or not os.path.isdir(cand):
-            continue
-        if glob.glob(os.path.join(cand, "STM32*.svd")):
-            _svd_dir_cache = cand
-            return cand
-        hits = glob.glob(os.path.join(cand, "**", "*CMSIS_SVD"), recursive=True)
-        for h in hits:
-            if os.path.isdir(h) and glob.glob(os.path.join(h, "STM32*.svd")):
-                _svd_dir_cache = h
-                return h
-    _svd_dir_cache = ""
-    return ""
+    env = (os.environ.get("STM32_SVD_DIR") or "").strip()
+    if env and os.path.isdir(env) and glob.glob(os.path.join(env, "STM32*.svd")):
+        _svd_dir_cache = env
+        return env
+    cands = [env] if (env and os.path.isdir(env)) else \
+        [c for c in core._SVD_DIR_CANDIDATES if c and os.path.isdir(c)]
+    found = set()
+    for cand in cands:
+        found.add(cand)
+        for h in glob.glob(os.path.join(cand, "**", "*CMSIS_SVD"), recursive=True):
+            if os.path.isdir(h):
+                found.add(h)
+    # Rank by SVD-file count first, then natural/semantic version. Count first
+    # avoids picking a narrow set (e.g. an MPU-only *CMSIS_SVD that lacks the C5
+    # MCU files) just because its plugin version number is higher; among equally
+    # complete DBs the newest install wins, so upgrades are auto-selected.
+    scored = []
+    for d in found:
+        n = len(glob.glob(os.path.join(d, "STM32*.svd")))
+        if n:
+            scored.append((n, core._version_key(d), d))
+    if not scored:
+        _svd_dir_cache = ""
+        return ""
+    scored.sort()
+    _svd_dir_cache = scored[-1][2]
+    return _svd_dir_cache
 
 
 def pick_svd_file(device_name):

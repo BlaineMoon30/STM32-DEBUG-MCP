@@ -5,10 +5,17 @@ from . import core
 
 # Last detected Device name (used by the SVD module to pick a file).
 _detected_device = ""
+# Last detected DBGMCU DEV_ID (hex string, e.g. "0x44E"), used to resolve the
+# matching ST internal flash loader (*.stldr) for newer stldr-based cfgs.
+_detected_device_id = ""
 
 
 def get_detected_device():
     return _detected_device
+
+
+def get_detected_device_id():
+    return _detected_device_id
 
 
 # ====================================================================
@@ -71,11 +78,19 @@ def map_chip(device_name):
 
 
 def detect_device_name():
-    """Read the Device name by connecting via CubeProgrammer (HOTPLUG)."""
-    global _detected_device
+    """Read the Device name (and DEV_ID) by connecting via CubeProgrammer (HOTPLUG)."""
+    global _detected_device, _detected_device_id
     out = core.run_cli(["-c", "port=SWD", "mode=HOTPLUG"], timeout=60)
     for line in out.splitlines():
         if "Device name" in line and ":" in line:
             _detected_device = line.split(":", 1)[1].strip()
-            return _detected_device
-    return ""
+        elif "Device ID" in line and ":" in line:
+            _detected_device_id = line.split(":", 1)[1].strip()
+    return _detected_device
+
+
+def detect_device_id():
+    """Return the DBGMCU DEV_ID (e.g. '0x44E'), running a HOTPLUG probe if needed."""
+    if not _detected_device_id:
+        detect_device_name()
+    return _detected_device_id

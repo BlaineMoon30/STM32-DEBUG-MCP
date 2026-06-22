@@ -77,16 +77,48 @@ _IAR_CANDIDATES = [
 ]
 
 
+def _version_key(path):
+    """Natural/semantic sort key for a path.
+
+    Splits digit runs out as integers so that, e.g., 'STM32CubeIDE_2.10.0'
+    sorts AFTER 'STM32CubeIDE_2.2.0' (a plain string sort gets this backwards
+    once a version component reaches two digits). Every element is a uniform
+    (rank, int, str) tuple so a digit token is never compared against a text
+    token (which would raise TypeError on misaligned paths).
+    """
+    s = path.replace("\\", "/").lower()
+    key = []
+    for p in re.split(r"(\d+)", s):
+        if p.isdigit():
+            key.append((0, int(p), ""))
+        elif p:
+            key.append((1, 0, p))
+    return key
+
+
 def _glob_first(roots, pattern):
-    """Return the first file matching `pattern` under any of `roots` (recursive)."""
+    """Return the newest file matching `pattern` across all `roots` (recursive).
+
+    'Newest' is decided by natural/semantic version order over the full path, so
+    a freshly installed toolchain (e.g. STM32CubeIDE_2.10.x or STM32CubeCLT_1.22)
+    is preferred over an older one. All roots are merged and de-duplicated, so a
+    leftover pinned-version folder no longer shadows a newer install beside it.
+    (Explicit per-tool env vars are applied by callers before this is reached.)
+    """
+    hits = []
+    seen = set()
     for root in roots:
         if not root or not os.path.isdir(root):
             continue
-        hits = glob.glob(os.path.join(root, "**", pattern), recursive=True)
-        if hits:
-            hits.sort()  # prefer the newest versioned folder (last when sorted)
-            return hits[-1]
-    return None
+        for h in glob.glob(os.path.join(root, "**", pattern), recursive=True):
+            key = os.path.normcase(os.path.abspath(h))
+            if key not in seen:
+                seen.add(key)
+                hits.append(h)
+    if not hits:
+        return None
+    hits.sort(key=_version_key)
+    return hits[-1]
 
 
 def _resolve_paths():
@@ -114,11 +146,56 @@ def _resolve_paths():
         or _glob_first(iar_roots, "iarbuild.exe")
     iccarm = _glob_first(iar_roots, "iccarm.exe")
 
+    # ST internal flash loaders (*.stldr). Newer target cfgs (e.g. stm32c5x)
+    # program flash via an stldr instead of a built-in flash driver and abort at
+    # startup unless INTERNAL_FLASH_LOADERS is set. They live in
+    # <CubeProgrammer>/bin/FlashLoader/, keyed by DBGMCU DEV_ID (e.g. 0x44E.stldr).
+    stldr_dir = os.environ.get("STM32_FLASHLOADER_DIR")
+    if not stldr_dir and cli:
+        cand = os.path.join(os.path.dirname(cli), "FlashLoader")
+        if os.path.isdir(cand):
+            stldr_dir = cand
+    if not stldr_dir:
+        hit = _glob_first(roots, os.path.join("FlashLoader", "*.stldr"))
+        if hit:
+            stldr_dir = os.path.dirname(hit)
+
     return {"cli": cli, "openocd": openocd, "gdb": gdb, "scripts": scripts,
-            "iarbuild": iarbuild, "iccarm": iccarm}
+            "iarbuild": iarbuild, "iccarm": iccarm, "stldr_dir": stldr_dir}
 
 
 PATHS = _resolve_paths()
+
+
+def find_internal_flash_loader(dev_id):
+    """Resolve the ST internal flash loader (*.stldr) for a DBGMCU DEV_ID.
+
+    dev_id is a hex string as printed by CubeProgrammer (e.g. '0x44E'). The
+    loaders are named '<dev_id>.stldr' under the CubeProgrammer FlashLoader dir.
+    Returns a forward-slash path, or None if no matching loader is found.
+    """
+    d = (dev_id or "").strip()
+    if not d:
+        return None
+    if not d.lower().startswith("0x"):
+        d = "0x" + d
+    sd = PATHS.get("stldr_dir")
+    if not sd or not os.path.isdir(sd):
+        return None
+    body = d[2:]
+    # CubeProgrammer prints e.g. 0x44E; files are 0x44E.stldr. Try the exact
+    # value plus upper/lower-case hex variants.
+    for cand in (d, "0x" + body.upper(), "0x" + body.lower()):
+        p = os.path.join(sd, cand + ".stldr")
+        if os.path.isfile(p):
+            return p.replace("\\", "/")
+    # Fallback: a single <id>*.stldr (prefer the plain one over *_nonSecure).
+    hits = []
+    for cand in ("0x" + body.upper(), "0x" + body.lower(), d):
+        hits += glob.glob(os.path.join(sd, cand + "*.stldr"))
+    hits = sorted(set(hits), key=len)
+    return hits[0].replace("\\", "/") if hits else None
+
 
 # ====================================================================
 # Build directory resolution

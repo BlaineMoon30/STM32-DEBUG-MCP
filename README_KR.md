@@ -112,6 +112,34 @@ check_setup 실행해줘            # 경로 자동 탐색 + 빌드 폴더 출�
 세션 없이 운영 중 보드 SPI1 해석해줘      # HotPlug 페리페럴
 ```
 
+### 툴체인: GCC(Makefile/CMake) 또는 IAR EWARM
+
+`build` 는 두 가지 툴체인을 지원하며 자동으로 선택합니다.
+
+- **GCC** — 빌드 폴더에 `Makefile` 이 있으면 → `make -j4 all` → `.elf` 생성.
+- **IAR EWARM** — 근처에 IAR 프로젝트(`.ewp`)가 있으면 →
+  `iarbuild.exe <proj.ewp> -make <config>` → `.out` 생성(이 역시 ELF/DWARF).
+  `iarbuild.exe` 는 자동 탐색됩니다(예: `C:/iar/ewarm-9.60.4/common/bin/iarbuild.exe`).
+
+IAR `.out` 은 표준 ELF(DWARF 심볼 포함)이므로 플래시와 OpenOCD + GDB 디버그
+스택이 그대로 동작합니다. 즉 `flash`, `start_debug`, 브레이크포인트, 레지스터 등
+모든 기능이 툴체인과 무관하게 동일하게 작동합니다.
+
+```
+지금 무슨 툴체인 써?                    # check_setup 에서 표시
+IAR로 빌드하게 해줘                     # set_toolchain("iar")
+IAR 프로젝트를 D:/proj/App.ewp 로 지정   # set_iar_project
+빌드해줘                                # iarbuild -make Debug
+Release 구성으로 빌드해줘                # build(config="Release")
+전체 다시 빌드해줘                       # build(clean=True) -> iarbuild -build
+플래시해줘                              # 생성된 .out 을 플래시
+```
+
+자동 감지가 기본이라 보통 `build` 만 호출하면 됩니다. 감지가 틀릴 때만
+`set_toolchain("gcc"|"iar")`(또는 `STM32_TOOLCHAIN` 환경변수)로 고정하세요.
+`.ewp` 를 못 찾으면 `set_iar_project` 또는 `STM32_IAR_PROJECT` 환경변수로
+지정하고, IAR 설치 경로는 `STM32_IAR_ROOT` / `STM32_IARBUILD` 로 바꿀 수 있습니다.
+
 ### HotPlug: 디버그 세션 없이 운영 중인 보드 확인
 `hotplug_read_memory` 와 `hotplug_read_peripheral` 는 CubeProgrammer(`mode=HOTPLUG`)로
 붙어서 OpenOCD/GDB **없이**, 이상적으로는 펌웨어를 **멈추지 않고** 메모리를 읽거나

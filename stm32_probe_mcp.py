@@ -31,8 +31,8 @@ The implementation is split into the `stm32mcp` package:
     core         - shared MCP instance, paths, build-dir, GDB helpers, state
     chips        - chip detection + family -> OpenOCD target cfg mapping
     svd          - SVD parsing and register/bit-field decoding
-    tools_setup  - check_setup, set_build_dir, show_build_dir
-    tools_probe  - list_probes, probe_details, build, flash, erase_chip, detect_chip
+    tools_setup  - check_setup, set_build_dir, show_build_dir, set_toolchain, set_iar_project
+    tools_probe  - list_probes, probe_details, build (GCC make / IAR EWARM), flash, erase_chip, detect_chip
     tools_debug  - start_debug, stop_debug, breakpoints, run/cont/halt/step, registers
     tools_watch  - watch_read, watch_sample, set_watchpoint, list/delete breakpoints
     tools_svd    - read_peripheral, list_peripherals
@@ -45,10 +45,14 @@ Install:
     py -m pip install fastmcp pygdbmi
 
 Environment variables (optional overrides):
-    STM32_BUILD_DIR     : folder where the .elf is built
+    STM32_BUILD_DIR     : folder where the .elf/.out is built
     STM32_CUBEIDE_ROOT  : STM32CubeIDE install root
     STM32_SVD_DIR       : folder containing the .svd files
     STM32_PROGRAMMER_CLI / OPENOCD_BIN / OPENOCD_SCRIPTS / GDB_BIN : explicit paths
+    STM32_TOOLCHAIN     : "gcc" or "iar" to force the build toolchain (default: auto)
+    STM32_IAR_ROOT      : IAR EWARM install root (e.g. C:/iar/ewarm-9.60.4)
+    STM32_IARBUILD      : explicit path to iarbuild.exe
+    STM32_IAR_PROJECT   : path to the IAR project (.ewp) to build
 """
 
 import os

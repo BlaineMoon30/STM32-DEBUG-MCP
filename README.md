@@ -114,6 +114,35 @@ read memory at 0x20000000 without a debug session   # HotPlug, no halt
 decode SPI1 on the running board without a session   # HotPlug peripheral
 ```
 
+### Toolchain: GCC (Makefile/CMake) or IAR EWARM
+
+`build` supports two toolchains and auto-selects between them:
+
+- **GCC** — a `Makefile` in the build dir → `make -j4 all` → produces a `.elf`.
+- **IAR EWARM** — an IAR project (`.ewp`) nearby → `iarbuild.exe <proj.ewp> -make <config>`
+  → produces a `.out` (also ELF/DWARF). `iarbuild.exe` is auto-detected (e.g.
+  `C:/iar/ewarm-9.60.4/common/bin/iarbuild.exe`).
+
+Flashing and the whole OpenOCD + GDB debug stack work on the IAR `.out` unchanged
+(it is a standard ELF with DWARF symbols), so `flash`, `start_debug`, breakpoints,
+registers, etc. all behave the same regardless of toolchain.
+
+```
+what toolchain am I using?            # check_setup shows it
+use IAR                               # set_toolchain("iar")
+set the IAR project to D:/proj/App.ewp   # set_iar_project
+build                                 # iarbuild -make Debug
+build the Release config              # build(config="Release")
+rebuild everything                    # build(clean=True)  -> iarbuild -build
+flash the board                       # flashes the produced .out
+```
+
+Detection is automatic, so usually you only need `build`. Force it with
+`set_toolchain("gcc"|"iar")` (or the `STM32_TOOLCHAIN` env var) when auto-detect
+guesses wrong. If the `.ewp` isn't found, point at it with `set_iar_project` or the
+`STM32_IAR_PROJECT` env var. IAR install paths can be overridden with `STM32_IAR_ROOT`
+/ `STM32_IARBUILD`.
+
 ### HotPlug: inspect a running board without a debug session
 `hotplug_read_memory` and `hotplug_read_peripheral` attach via CubeProgrammer
 (`mode=HOTPLUG`) to read memory / decode peripherals **without** OpenOCD/GDB and

@@ -67,6 +67,15 @@ _SVD_DIR_CANDIDATES = [
     r"C:/ST",  # fall back to scanning for a *_CMSIS_SVD folder underneath
 ]
 
+# IAR Embedded Workbench for ARM (EWARM) install roots, newest first.
+_IAR_CANDIDATES = [
+    os.environ.get("STM32_IAR_ROOT", ""),
+    r"C:/iar/ewarm-9.60.4",
+    r"C:/iar",
+    r"C:/Program Files/IAR Systems",
+    r"C:/Program Files (x86)/IAR Systems",
+]
+
 
 def _glob_first(roots, pattern):
     """Return the first file matching `pattern` under any of `roots` (recursive)."""
@@ -99,7 +108,14 @@ def _resolve_paths():
             # .../st_scripts/target/stm32h5x.cfg  ->  .../st_scripts
             scripts = os.path.dirname(os.path.dirname(h5cfg))
 
-    return {"cli": cli, "openocd": openocd, "gdb": gdb, "scripts": scripts}
+    # IAR EWARM command-line build tool (iarbuild.exe) and compiler (iccarm.exe).
+    iar_roots = [r for r in _IAR_CANDIDATES if r]
+    iarbuild = os.environ.get("STM32_IARBUILD") or shutil.which("iarbuild") \
+        or _glob_first(iar_roots, "iarbuild.exe")
+    iccarm = _glob_first(iar_roots, "iccarm.exe")
+
+    return {"cli": cli, "openocd": openocd, "gdb": gdb, "scripts": scripts,
+            "iarbuild": iarbuild, "iccarm": iccarm}
 
 
 PATHS = _resolve_paths()
@@ -184,15 +200,132 @@ def no_build_dir_msg():
     )
 
 
-def find_elf():
-    """Find the first .elf in the active build dir, as a normalized forward-slash path."""
+# ====================================================================
+# Toolchain selection (GCC make-build vs IAR EWARM iarbuild)
+#   priority: set_toolchain override > STM32_TOOLCHAIN env > auto-detect
+# An IAR project (.ewp) nearby (and no Makefile) auto-selects the IAR path.
+# ====================================================================
+_toolchain_override = None     # "gcc" | "iar" | None
+_iar_project_override = None   # explicit path to a .ewp (set_iar_project)
+
+
+def set_toolchain_override(name):
+    """Set ('gcc'/'iar') or clear (None/'') the runtime toolchain override."""
+    global _toolchain_override
+    name = (name or "").strip().lower()
+    _toolchain_override = name if name in ("gcc", "iar") else None
+
+
+def set_iar_project_override(path):
+    """Set (or clear with None/'') the runtime IAR project (.ewp) override."""
+    global _iar_project_override
+    _iar_project_override = path or None
+
+
+def find_iar_project():
+    """Locate the IAR project file (.ewp): override > env > auto-find under build dir / CWD.
+
+    Returns a normalized forward-slash path, or None. Prefers the shallowest match.
+    """
+    if _iar_project_override:
+        return _iar_project_override.replace("\\", "/")
+    env = os.environ.get("STM32_IAR_PROJECT")
+    if env:
+        return env.replace("\\", "/")
+    seen = []
+    for root in (get_build_dir(), os.getcwd()):
+        if not root or not os.path.isdir(root) or root in seen:
+            continue
+        seen.append(root)
+        hits = glob.glob(os.path.join(root, "**", "*.ewp"), recursive=True)
+        if hits:
+            hits.sort(key=lambda p: (p.replace("\\", "/").count("/"), p))
+            return hits[0].replace("\\", "/")
+    return None
+
+
+def get_toolchain():
+    """Return the active build toolchain: 'gcc' or 'iar'."""
+    if _toolchain_override in ("gcc", "iar"):
+        return _toolchain_override
+    env = (os.environ.get("STM32_TOOLCHAIN") or "").strip().lower()
+    if env in ("gcc", "iar"):
+        return env
+    # Auto-detect: a Makefile in the build dir means GCC; otherwise an IAR
+    # project (.ewp) nearby means IAR. Default to GCC.
     bdir = get_build_dir()
-    if not bdir or not os.path.isdir(bdir):
-        return None
-    for f in os.listdir(bdir):
-        if f.lower().endswith(".elf"):
-            full = os.path.abspath(os.path.join(bdir, f))
-            return full.replace("\\", "/")
+    if bdir and os.path.isfile(os.path.join(bdir, "Makefile")):
+        return "gcc"
+    if find_iar_project():
+        return "iar"
+    return "gcc"
+
+
+def toolchain_source():
+    """Return a label describing how the toolchain was resolved."""
+    if _toolchain_override in ("gcc", "iar"):
+        return "set_toolchain override"
+    if (os.environ.get("STM32_TOOLCHAIN") or "").strip().lower() in ("gcc", "iar"):
+        return "STM32_TOOLCHAIN env"
+    return "auto-detected"
+
+
+def run_iarbuild(ewp, config, action="-make", timeout=900):
+    """Build an IAR project from the command line via iarbuild.exe.
+
+    action: '-make' (incremental), '-build' (rebuild all), or '-clean'.
+    """
+    iarbuild = PATHS.get("iarbuild")
+    if not iarbuild or not os.path.exists(iarbuild):
+        return ("Error: iarbuild.exe not found. Install IAR EWARM or set "
+                "STM32_IAR_ROOT / STM32_IARBUILD.")
+    if not ewp or not os.path.exists(ewp):
+        return f"Error: IAR project (.ewp) not found: {ewp!r}"
+    return run([iarbuild, ewp, action, config, "-log", "info"], timeout=timeout)
+
+
+# ====================================================================
+# Firmware image discovery (.elf for GCC, .out for IAR; both are ELF/DWARF)
+# ====================================================================
+def find_elf():
+    """Find the firmware image for the active build, as a forward-slash path.
+
+    GCC produces a top-level ``.elf`` in the build dir; IAR EWARM produces a
+    ``.out`` (also ELF/DWARF) under ``<project>/<config>/Exe/``. Returns None
+    if nothing is found.
+    """
+    bdir = get_build_dir()
+    # Fast path: a top-level .elf (GCC) or .out (IAR) directly in the build dir.
+    if bdir and os.path.isdir(bdir):
+        for ext in (".elf", ".out"):
+            for f in sorted(os.listdir(bdir)):
+                if f.lower().endswith(ext):
+                    return os.path.abspath(os.path.join(bdir, f)).replace("\\", "/")
+    # IAR fallback: the image sits in <project>/<config>/Exe/<proj>.out, so
+    # search the build dir and the IAR project dir, preferring an 'Exe' folder
+    # and the newest file.
+    roots = []
+    if bdir and os.path.isdir(bdir):
+        roots.append(bdir)
+    ewp = find_iar_project()
+    if ewp:
+        pdir = os.path.dirname(ewp)
+        if os.path.isdir(pdir) and pdir not in roots:
+            roots.append(pdir)
+    hits = []
+    for root in roots:
+        for r, _dirs, files in os.walk(root):
+            base = os.path.basename(r).lower()
+            if base in (".git", "node_modules", ".vscode"):
+                continue
+            for f in files:
+                if f.lower().endswith((".elf", ".out")):
+                    full = os.path.join(r, f)
+                    in_exe = 0 if base == "exe" else 1
+                    hits.append((in_exe, -os.path.getmtime(full), full))
+    if hits:
+        hits.sort()
+        return os.path.abspath(hits[0][2]).replace("\\", "/")
     return None
 
 

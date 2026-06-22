@@ -24,6 +24,18 @@ def check_setup() -> str:
         v = core.PATHS.get(k)
         ok = "OK" if (v and os.path.exists(v)) else "MISSING"
         lines.append(f"{label}: {ok}\n   {v}")
+
+    lines.append("\n=== Toolchain ===")
+    tc = core.get_toolchain()
+    lines.append(f"Active toolchain [{core.toolchain_source()}]: {tc.upper()}")
+    iarbuild = core.PATHS.get("iarbuild")
+    iar_ok = "OK" if (iarbuild and os.path.exists(iarbuild)) else "MISSING (IAR not installed?)"
+    lines.append(f"IAR iarbuild: {iar_ok}\n   {iarbuild}")
+    if tc == "iar":
+        ewp = core.find_iar_project()
+        lines.append(f"IAR project (.ewp): {ewp if ewp else 'MISSING - use set_iar_project'}")
+
+    lines.append("")
     bdir = core.get_build_dir()
     src = core.build_dir_source()
     if bdir:
@@ -82,3 +94,63 @@ def show_build_dir() -> str:
     return (f"Build dir : {bdir}\n"
             f"Source    : {core.build_dir_source()}\n"
             f"ELF       : {elf_s}")
+
+
+@mcp.tool
+def set_toolchain(name: str = "") -> str:
+    """빌드 툴체인을 GCC 또는 IAR 로 강제 지정합니다 (비우면 자동 감지로 되돌림).
+    Force the build toolchain to GCC or IAR for this session (empty = auto-detect).
+
+    사용 예 / Use for: "IAR로 빌드하게 해줘", "GCC로 바꿔줘", "툴체인 IAR",
+    "use IAR", "switch to GCC", "set toolchain".
+    기본은 자동 감지(빌드 폴더에 Makefile -> GCC, 근처 .ewp -> IAR)이며,
+    감지가 틀릴 때만 이 도구로 고정하세요.
+    Auto-detect is the default (Makefile -> GCC, nearby .ewp -> IAR); use this
+    only to override when detection is wrong.
+
+    Args:
+        name: "gcc" 또는 "iar" / "gcc" or "iar". 비우면 override 해제(자동).
+    """
+    n = (name or "").strip().lower()
+    if n and n not in ("gcc", "iar"):
+        return f"Error: unknown toolchain {name!r}. Use 'gcc' or 'iar' (or empty for auto)."
+    core.set_toolchain_override(n)
+    if not n:
+        return (f"툴체인 override 해제 / cleared. Now auto-resolves to: "
+                f"{core.get_toolchain().upper()} [{core.toolchain_source()}]")
+    extra = ""
+    if n == "iar":
+        iarbuild = core.PATHS.get("iarbuild")
+        if not iarbuild or not os.path.exists(iarbuild):
+            extra = "\n   Warning: iarbuild.exe not found - set STM32_IAR_ROOT/STM32_IARBUILD."
+        ewp = core.find_iar_project()
+        extra += f"\n   IAR project: {ewp}" if ewp else "\n   IAR project: (not found - use set_iar_project)"
+    return f"툴체인 설정됨 / toolchain set: {n.upper()}{extra}"
+
+
+@mcp.tool
+def set_iar_project(path: str = "") -> str:
+    """IAR 프로젝트 파일(.ewp) 경로를 이 세션 동안 지정합니다 (비우면 해제).
+    Set the IAR project file (.ewp) for this session (empty clears the override).
+
+    사용 예 / Use for: "IAR 프로젝트를 D:/proj/App.ewp 로 지정", "set the IAR project".
+    iarbuild 는 .eww 워크스페이스가 아니라 .ewp 프로젝트 파일을 빌드합니다.
+    iarbuild builds the .ewp project file (not the .eww workspace).
+
+    Args:
+        path: .ewp 파일 경로. 비우면 자동 탐색/환경변수로 되돌립니다.
+    """
+    if not path:
+        core.set_iar_project_override(None)
+        found = core.find_iar_project()
+        return ("IAR 프로젝트 override 해제 / cleared. Now resolves to: "
+                + (found or "(none found - set STM32_IAR_PROJECT or run from the project folder)"))
+    norm = path.replace("\\", "/")
+    if not norm.lower().endswith(".ewp"):
+        return f"Error: expected a .ewp project file, got {path!r}."
+    core.set_iar_project_override(norm)
+    if not os.path.isfile(norm):
+        return (f"경고/Warning: file does not exist yet: {norm}\n"
+                "그래도 설정은 적용했습니다 / set anyway.")
+    return (f"IAR 프로젝트 설정됨 / IAR project set:\n   {norm}\n"
+            "툴체인이 자동으로 IAR 로 감지됩니다 (필요시 set_toolchain('iar')).")

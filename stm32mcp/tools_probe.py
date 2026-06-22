@@ -34,18 +34,53 @@ def probe_details() -> str:
 
 
 @mcp.tool
-def build() -> str:
-    """CubeIDE 프로젝트를 빌드(make)해서 .elf 를 생성합니다.
-    Build the CubeIDE project (make) to produce the .elf.
+def build(config: str = "", clean: bool = False) -> str:
+    """프로젝트를 빌드해 펌웨어 이미지를 생성합니다 (GCC make 또는 IAR EWARM 자동 선택).
+    Build the project to produce the firmware image (GCC make or IAR EWARM,
+    auto-selected by toolchain).
 
-    사용 예 / Use for: "빌드해줘", "컴파일해줘", "build", "compile".
+    사용 예 / Use for: "빌드해줘", "컴파일해줘", "build", "compile",
+    "IAR로 빌드해줘", "Release 빌드", "전체 다시 빌드".
+
+    툴체인은 자동 감지됩니다: 빌드 폴더에 Makefile 이 있으면 GCC, 근처에
+    IAR 프로젝트(.ewp)가 있으면 IAR. set_toolchain 으로 강제할 수 있습니다.
+    The toolchain is auto-detected: a Makefile in the build dir -> GCC; an IAR
+    project (.ewp) nearby -> IAR. Force it with set_toolchain.
+
+    GCC : make -j4 [clean] all          (.elf 생성 / produces .elf)
+    IAR : iarbuild <proj.ewp> [-make|-build] <config>   (.out 생성 / produces .out)
+
+    Args:
+        config: IAR 빌드 구성 이름(예: "Debug"/"Release"), 비우면 "Debug".
+                GCC 에서는 무시됩니다. IAR configuration name; ignored for GCC.
+        clean:  True 면 전체 다시 빌드 (GCC: make clean all, IAR: -build).
+                True forces a full rebuild instead of an incremental one.
     """
+    toolchain = core.get_toolchain()
+
+    if toolchain == "iar":
+        ewp = core.find_iar_project()
+        if not ewp:
+            return ("IAR 프로젝트(.ewp)를 찾지 못했습니다.\n"
+                    "Could not find an IAR project (.ewp).\n"
+                    "set_iar_project 로 지정하거나, STM32_IAR_PROJECT 환경변수를 쓰거나,\n"
+                    "프로젝트 폴더에서 실행하세요 / point to it with set_iar_project, set "
+                    "STM32_IAR_PROJECT, or run from the project folder.")
+        cfg = config or "Debug"
+        action = "-build" if clean else "-make"
+        out = core.run_iarbuild(ewp, cfg, action=action, timeout=900)
+        img = core.find_elf()
+        produced = f"\n\nProduced image: {img}" if img else "\n\nWarning: no .out/.elf found"
+        return f"[IAR iarbuild {action} {cfg}]  project: {ewp}\n\n{out}{produced}"
+
+    # --- GCC / Makefile ---
     bdir = core.get_build_dir()
     if not bdir:
         return core.no_build_dir_msg()
     if not os.path.isdir(bdir):
         return f"Error: build folder not found: {bdir}\n\n" + core.no_build_dir_msg()
-    out = core.run(["make", "-j4", "all"], cwd=bdir, timeout=600)
+    targets = ["clean", "all"] if clean else ["all"]
+    out = core.run(["make", "-j4", *targets], cwd=bdir, timeout=600)
     elf = core.find_elf()
     return out + (f"\n\nProduced ELF: {elf}" if elf else "\n\nWarning: no .elf found")
 

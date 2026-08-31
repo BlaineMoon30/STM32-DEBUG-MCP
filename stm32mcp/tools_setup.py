@@ -98,18 +98,20 @@ def show_build_dir() -> str:
 
 @mcp.tool
 def set_toolchain(name: str = "") -> str:
-    """빌드 툴체인을 GCC 또는 IAR 로 강제 지정합니다 (비우면 자동 감지로 되돌림).
-    Force the build toolchain to GCC or IAR for this session (empty = auto-detect).
+    """빌드 툴체인을 GCC / IAR / CMake 로 강제 지정합니다 (비우면 자동 감지로 되돌림).
+    Force the build toolchain to GCC, IAR, or CMake for this session
+    (empty = auto-detect).
 
     사용 예 / Use for: "IAR로 빌드하게 해줘", "GCC로 바꿔줘", "툴체인 IAR",
-    "use IAR", "switch to GCC", "set toolchain".
-    기본은 자동 감지(빌드 폴더에 Makefile -> GCC, 근처 .ewp -> IAR)이며,
-    감지가 틀릴 때만 이 도구로 고정하세요.
-    Auto-detect is the default (Makefile -> GCC, nearby .ewp -> IAR); use this
-    only to override when detection is wrong.
+    "CMake로 빌드해줘", "use IAR", "switch to GCC", "use CMake", "set toolchain".
+    기본은 자동 감지(빌드 폴더에 CMakeCache.txt -> CMake, Makefile -> GCC,
+    근처 .ewp -> IAR)이며, 감지가 틀릴 때만 이 도구로 고정하세요.
+    Auto-detect is the default (CMakeCache.txt -> CMake, Makefile -> GCC,
+    nearby .ewp -> IAR); use this only to override when detection is wrong.
 
     Args:
-        name: "gcc" 또는 "iar" / "gcc" or "iar". 비우면 override 해제(자동).
+        name: "gcc", "iar", 또는 "cmake" / "gcc", "iar", or "cmake".
+            비우면 override 해제(자동) / empty clears the override.
     """
     n = (name or "").strip().lower()
     if n and n not in ("gcc", "iar", "cmake"):

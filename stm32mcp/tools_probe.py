@@ -35,25 +35,33 @@ def probe_details() -> str:
 
 @mcp.tool
 def build(config: str = "", clean: bool = False) -> str:
-    """프로젝트를 빌드해 펌웨어 이미지를 생성합니다 (GCC make 또는 IAR EWARM 자동 선택).
-    Build the project to produce the firmware image (GCC make or IAR EWARM,
-    auto-selected by toolchain).
+    """프로젝트를 빌드해 펌웨어 이미지를 생성합니다 (CMake / GCC make / IAR EWARM 자동 선택).
+    Build the project to produce the firmware image (CMake, GCC make or IAR
+    EWARM, auto-selected by toolchain).
 
     사용 예 / Use for: "빌드해줘", "컴파일해줘", "build", "compile",
     "IAR로 빌드해줘", "Release 빌드", "전체 다시 빌드".
 
-    툴체인은 자동 감지됩니다: 빌드 폴더에 Makefile 이 있으면 GCC, 근처에
-    IAR 프로젝트(.ewp)가 있으면 IAR. set_toolchain 으로 강제할 수 있습니다.
-    The toolchain is auto-detected: a Makefile in the build dir -> GCC; an IAR
-    project (.ewp) nearby -> IAR. Force it with set_toolchain.
+    툴체인은 자동 감지됩니다: 빌드 폴더에 CMakeCache.txt 가 있으면 CMake,
+    Makefile 이 있으면 GCC, 근처에 IAR 프로젝트(.ewp)가 있으면 IAR.
+    set_toolchain 으로 강제할 수 있습니다.
+    The toolchain is auto-detected: CMakeCache.txt in the build dir -> CMake;
+    a Makefile -> GCC; an IAR project (.ewp) nearby -> IAR. Force it with
+    set_toolchain.
 
-    GCC : make -j4 [clean] all          (.elf 생성 / produces .elf)
-    IAR : iarbuild <proj.ewp> [-make|-build] <config>   (.out 생성 / produces .out)
+    CMake: cmake --build <dir> [--clean-first]  (.elf 생성 / produces .elf)
+           생성기 무관 / generator-agnostic (Ninja, Makefiles, ...)
+    GCC  : make -j4 [clean] all                 (.elf 생성 / produces .elf)
+    IAR  : iarbuild <proj.ewp> [-make|-build] <config>   (.out 생성 / produces .out)
 
     Args:
         config: IAR 빌드 구성 이름(예: "Debug"/"Release"), 비우면 "Debug".
-                GCC 에서는 무시됩니다. IAR configuration name; ignored for GCC.
-        clean:  True 면 전체 다시 빌드 (GCC: make clean all, IAR: -build).
+                CMake 에서는 --config 로 전달됩니다(멀티구성 생성기에서만 의미).
+                GCC 에서는 무시됩니다. IAR configuration name; passed to CMake as
+                --config (only meaningful for multi-config generators);
+                ignored for GCC.
+        clean:  True 면 전체 다시 빌드
+                (CMake: --clean-first, GCC: make clean all, IAR: -build).
                 True forces a full rebuild instead of an incremental one.
     """
     toolchain = core.get_toolchain()

@@ -282,12 +282,12 @@ def no_build_dir_msg():
 #   priority: set_toolchain override > STM32_TOOLCHAIN env > auto-detect
 # An IAR project (.ewp) nearby (and no Makefile) auto-selects the IAR path.
 # ====================================================================
-_toolchain_override = None     # "gcc" | "iar" | None
+_toolchain_override = None     # "gcc" | "iar" | "cmake" | None
 _iar_project_override = None   # explicit path to a .ewp (set_iar_project)
 
 
 def set_toolchain_override(name):
-    """Set ('gcc'/'iar') or clear (None/'') the runtime toolchain override."""
+    """Set ('gcc'/'iar'/'cmake') or clear (None/'') the runtime toolchain override."""
     global _toolchain_override
     name = (name or "").strip().lower()
     _toolchain_override = name if name in ("gcc", "iar", "cmake") else None
@@ -322,7 +322,7 @@ def find_iar_project():
 
 
 def get_toolchain():
-    """Return the active build toolchain: 'gcc' or 'iar'."""
+    """Return the active build toolchain: 'gcc', 'iar', or 'cmake'."""
     if _toolchain_override in ("gcc", "iar", "cmake"):
         return _toolchain_override
     env = (os.environ.get("STM32_TOOLCHAIN") or "").strip().lower()

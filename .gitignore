@@ -1,0 +1,13 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# Backups / editor
+*.bak
+*.orig
+.idea/
+.vscode/
+.DS_Store

@@ -1,0 +1,4 @@
+# STM32 Debug MCP server dependencies
+#   py -m pip install -r requirements.txt
+fastmcp
+pygdbmi

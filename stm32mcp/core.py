@@ -290,7 +290,7 @@ def set_toolchain_override(name):
     """Set ('gcc'/'iar') or clear (None/'') the runtime toolchain override."""
     global _toolchain_override
     name = (name or "").strip().lower()
-    _toolchain_override = name if name in ("gcc", "iar") else None
+    _toolchain_override = name if name in ("gcc", "iar", "cmake") else None
 
 
 def set_iar_project_override(path):
@@ -323,14 +323,17 @@ def find_iar_project():
 
 def get_toolchain():
     """Return the active build toolchain: 'gcc' or 'iar'."""
-    if _toolchain_override in ("gcc", "iar"):
+    if _toolchain_override in ("gcc", "iar", "cmake"):
         return _toolchain_override
     env = (os.environ.get("STM32_TOOLCHAIN") or "").strip().lower()
-    if env in ("gcc", "iar"):
+    if env in ("gcc", "iar", "cmake"):
         return env
-    # Auto-detect: a Makefile in the build dir means GCC; otherwise an IAR
-    # project (.ewp) nearby means IAR. Default to GCC.
+    # Auto-detect: a CMake build dir (Ninja or Makefiles generator) means CMake;
+    # a plain Makefile means GCC; otherwise an IAR project (.ewp) nearby means
+    # IAR. Default to GCC.
     bdir = get_build_dir()
+    if bdir and os.path.isfile(os.path.join(bdir, "CMakeCache.txt")):
+        return "cmake"
     if bdir and os.path.isfile(os.path.join(bdir, "Makefile")):
         return "gcc"
     if find_iar_project():
@@ -340,9 +343,9 @@ def get_toolchain():
 
 def toolchain_source():
     """Return a label describing how the toolchain was resolved."""
-    if _toolchain_override in ("gcc", "iar"):
+    if _toolchain_override in ("gcc", "iar", "cmake"):
         return "set_toolchain override"
-    if (os.environ.get("STM32_TOOLCHAIN") or "").strip().lower() in ("gcc", "iar"):
+    if (os.environ.get("STM32_TOOLCHAIN") or "").strip().lower() in ("gcc", "iar", "cmake"):
         return "STM32_TOOLCHAIN env"
     return "auto-detected"
 
@@ -409,10 +412,28 @@ def find_elf():
 # ====================================================================
 # Generic process / CLI helpers
 # ====================================================================
-def run(cmd, cwd=None, timeout=180):
+def gnu_tools_env():
+    """Environment for make/cmake builds, with the GNU ARM toolchain bin dir
+    prepended to PATH so `arm-none-eabi-gcc` resolves even when the MCP host
+    process was launched without it (e.g. Claude Code on Windows).
+
+    The dir comes from STM32_GNU_TOOLS if set, else from the folder of the
+    auto-detected arm-none-eabi-gdb (CubeIDE plugin / CubeCLT), which ships
+    gcc alongside gdb."""
+    env = os.environ.copy()
+    d = (os.environ.get("STM32_GNU_TOOLS") or "").strip()
+    if not d and PATHS.get("gdb"):
+        d = os.path.dirname(PATHS["gdb"])
+    if d and os.path.isdir(d):
+        env["PATH"] = d + os.pathsep + env.get("PATH", "")
+    return env
+
+
+def run(cmd, cwd=None, timeout=180, env=None):
     """Run a command and return combined stdout + stderr (never raises)."""
     try:
-        r = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout, cwd=cwd)
+        r = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout, cwd=cwd,
+                           env=env)
         return (r.stdout or "") + (r.stderr or "")
     except subprocess.TimeoutExpired:
         return f"Error: command timed out ({timeout}s)"

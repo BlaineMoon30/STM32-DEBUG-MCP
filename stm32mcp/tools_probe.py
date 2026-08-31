@@ -73,6 +73,22 @@ def build(config: str = "", clean: bool = False) -> str:
         produced = f"\n\nProduced image: {img}" if img else "\n\nWarning: no .out/.elf found"
         return f"[IAR iarbuild {action} {cfg}]  project: {ewp}\n\n{out}{produced}"
 
+    # --- CMake (Ninja 또는 Makefiles 생성기 모두) / generator-agnostic ---
+    if toolchain == "cmake":
+        bdir = core.get_build_dir()
+        if not bdir:
+            return core.no_build_dir_msg()
+        if not os.path.isdir(bdir):
+            return f"Error: build folder not found: {bdir}\n\n" + core.no_build_dir_msg()
+        args = ["cmake", "--build", bdir]
+        if clean:
+            args.append("--clean-first")
+        if config:
+            args += ["--config", config]
+        out = core.run(args, timeout=600, env=core.gnu_tools_env())
+        elf = core.find_elf()
+        return out + (f"\n\nProduced ELF: {elf}" if elf else "\n\nWarning: no .elf found")
+
     # --- GCC / Makefile ---
     bdir = core.get_build_dir()
     if not bdir:
@@ -80,7 +96,7 @@ def build(config: str = "", clean: bool = False) -> str:
     if not os.path.isdir(bdir):
         return f"Error: build folder not found: {bdir}\n\n" + core.no_build_dir_msg()
     targets = ["clean", "all"] if clean else ["all"]
-    out = core.run(["make", "-j4", *targets], cwd=bdir, timeout=600)
+    out = core.run(["make", "-j4", *targets], cwd=bdir, timeout=600, env=core.gnu_tools_env())
     elf = core.find_elf()
     return out + (f"\n\nProduced ELF: {elf}" if elf else "\n\nWarning: no .elf found")
 

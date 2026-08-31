@@ -112,8 +112,8 @@ def set_toolchain(name: str = "") -> str:
         name: "gcc" 또는 "iar" / "gcc" or "iar". 비우면 override 해제(자동).
     """
     n = (name or "").strip().lower()
-    if n and n not in ("gcc", "iar"):
-        return f"Error: unknown toolchain {name!r}. Use 'gcc' or 'iar' (or empty for auto)."
+    if n and n not in ("gcc", "iar", "cmake"):
+        return f"Error: unknown toolchain {name!r}. Use 'gcc', 'iar', or 'cmake' (or empty for auto)."
     core.set_toolchain_override(n)
     if not n:
         return (f"툴체인 override 해제 / cleared. Now auto-resolves to: "

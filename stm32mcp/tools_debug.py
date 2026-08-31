@@ -22,7 +22,7 @@ def _elf_entry_point():
 
 
 @mcp.tool
-def start_debug(elf_path: str = "", chip: str = "") -> str:
+def start_debug(elf_path: str = "", chip: str = "", probe_sn: str = "") -> str:
     """디버그 세션 시작: 칩 자동 감지 -> OpenOCD(gdbserver:3333) -> GDB 연결 -> 심볼 로드.
     Start a debug session: detect chip -> OpenOCD (gdbserver:3333) -> GDB -> load symbols.
 
@@ -32,9 +32,18 @@ def start_debug(elf_path: str = "", chip: str = "") -> str:
     (지원: C0/C5, F0-F7, G0/G4, H5/H7, L0-L5, N6, U0/U3/U5, V8, WB/WL).
     Auto-detects the chip and picks the matching target cfg.
 
+    ST-Link 이 여러 개 꽂혀 있으면 OpenOCD 는 먼저 열거된 것을 잡습니다.
+    엉뚱한 프로브(예: 타깃이 안 붙은 STLINK-V3PWR)를 잡아 "Target voltage: 0.01"
+    로 죽으면 probe_sn 으로 쓸 프로브를 지정하세요. SN 은 list_probes 로 확인합니다.
+    With several ST-Links attached OpenOCD grabs the first one enumerated; pass
+    probe_sn (see list_probes) to pin the one you want.
+
     Args:
         elf_path: 디버그할 .elf (비우면 자동 탐색) / .elf to debug.
         chip: 계열 강제 지정(예: "stm32f4x"), 비우면 자동 감지 / force a family.
+        probe_sn: 쓸 ST-Link 시리얼 번호. 비우면 환경변수 STM32_PROBE_SN,
+            그것도 없으면 OpenOCD 기본 선택(첫 번째 프로브).
+            ST-Link serial to pin; falls back to $STM32_PROBE_SN, else OpenOCD default.
     """
     if core.GdbController is None:
         return "Error: pygdbmi not installed. Run 'py -m pip install pygdbmi' and restart."
@@ -104,9 +113,14 @@ def start_debug(elf_path: str = "", chip: str = "") -> str:
                 "FlashLoader dir (set STM32_FLASHLOADER_DIR). OpenOCD may abort.")
 
     # -- Launch OpenOCD (interface unified to stlink-dap + dapdirect_swd) --
+    # "adapter serial" must come after the interface cfg (the adapter driver has
+    # to be selected first) and before init, i.e. before the target cfg.
+    sn = (probe_sn or os.environ.get("STM32_PROBE_SN", "")).strip()
+    sn_args = ["-c", f"adapter serial {sn}"] if sn else []
     cmd = [
         openocd, "-s", scripts,
         "-f", "interface/stlink-dap.cfg",
+        *sn_args,
         "-c", "transport select dapdirect_swd",
         *loader_args,
         "-f", f"target/{target_cfg}",

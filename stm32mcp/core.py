@@ -505,9 +505,11 @@ def gdb_cmd(command, timeout=20):
 def read_word(address):
     """Read a single 32-bit word from target memory as an int (None on failure)."""
     resp = gdb_cmd(f"-data-read-memory {hex(address)} x 4 1 1", timeout=10)
-    m = re.search(r'data=\["?(0x[0-9a-fA-F]+)', resp)
-    if not m:
-        m = re.search(r'(0x[0-9a-fA-F]{1,8})', resp)
+    # gdb_cmd returns the MI record either raw (data=["0x..."]) or as the
+    # pygdbmi dict repr ('data': ['0x...']). Never fall back to "first hex in
+    # the reply": that is the 'addr' field, so every register read as its own
+    # address.
+    m = re.search(r"""data['"]?\s*[:=]\s*\[\s*['"]?(0x[0-9a-fA-F]+)""", resp)
     if m:
         try:
             return int(m.group(1), 0)

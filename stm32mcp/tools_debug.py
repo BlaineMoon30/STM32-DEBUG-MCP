@@ -94,20 +94,30 @@ def start_debug(elf_path: str = "", chip: str = "", probe_sn: str = "") -> str:
     loader_args = []
     loader_note = ""
     cfg_path = os.path.join(scripts, "target", target_cfg)
-    needs_loader = False
     try:
         with open(cfg_path, "r", encoding="utf-8", errors="ignore") as f:
-            needs_loader = "INTERNAL_FLASH_LOADERS" in f.read()
+            cfg_text = f.read()
     except OSError:
-        needs_loader = False
+        cfg_text = ""
+    needs_loader = "INTERNAL_FLASH_LOADERS" in cfg_text
+
+    # ST target cfgs for multi-AP parts (e.g. stm32h7x) read $AP_NUM without
+    # defining it (CubeIDE passes it on the command line), so OpenOCD aborts with
+    # 'can't read "AP_NUM": no such variable'. AP 0 is the main core (Cortex-M7
+    # on H7); override with $STM32_AP_NUM (e.g. 3 for the CM4 of an H745/H755).
+    ap_args = []
+    if "$AP_NUM" in cfg_text:
+        ap_num = os.environ.get("STM32_AP_NUM", "0").strip() or "0"
+        ap_args = ["-c", f"set AP_NUM {ap_num}"]
+        loader_note += f"\nAP_NUM: {ap_num}"
     if needs_loader:
         dev_id = chips.detect_device_id()
         loader = core.find_internal_flash_loader(dev_id)
         if loader:
             loader_args = ["-c", "set INTERNAL_FLASH_LOADERS { {%s} }" % loader]
-            loader_note = f"\ninternal flash loader: {loader} (DEV_ID {dev_id})"
+            loader_note += f"\ninternal flash loader: {loader} (DEV_ID {dev_id})"
         else:
-            loader_note = (
+            loader_note += (
                 f"\nWarning: {target_cfg} needs an ST internal flash loader but "
                 f"none was found for DEV_ID {dev_id!r} under the CubeProgrammer "
                 "FlashLoader dir (set STM32_FLASHLOADER_DIR). OpenOCD may abort.")
@@ -123,6 +133,7 @@ def start_debug(elf_path: str = "", chip: str = "", probe_sn: str = "") -> str:
         *sn_args,
         "-c", "transport select dapdirect_swd",
         *loader_args,
+        *ap_args,
         "-f", f"target/{target_cfg}",
     ]
     try:
@@ -154,6 +165,15 @@ def start_debug(elf_path: str = "", chip: str = "", probe_sn: str = "") -> str:
     elf_norm = os.path.abspath(elf).replace("\\", "/")
     sym = core.gdb_cmd(f'-file-exec-and-symbols "{elf_norm}"')
     tgt = core.gdb_cmd(f"-target-select extended-remote localhost:{core.GDB_PORT}")
+
+    # Upstream OpenOCD halts the core on gdb-attach, but ST's st_scripts replace
+    # that event with gdb_attach_hook, which does nothing on single-core parts
+    # (CubeIDE sends its own 'monitor halt'). Without it GDB reads the registers
+    # of a running core (pc = 0x0) and later halt requests look like no-ops.
+    if "gdb_attach_hook" in cfg_text:
+        tgt += "\n" + core.gdb_cmd('-interpreter-exec console "monitor halt"', timeout=10)
+        core.gdb_cmd('-interpreter-exec console "flushregs"', timeout=5)
+        tgt += "\n" + core.gdb_cmd("-stack-info-frame", timeout=5)
 
     warn = ""
     if "No such file" in sym or "error" in sym.lower():

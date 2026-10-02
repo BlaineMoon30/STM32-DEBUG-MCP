@@ -34,6 +34,12 @@ def check_setup() -> str:
     if tc == "iar":
         ewp = core.find_iar_project()
         lines.append(f"IAR project (.ewp): {ewp if ewp else 'MISSING - use set_iar_project'}")
+    cubeidec = core.find_cubeidec()
+    lines.append(f"STM32CubeIDE stm32cubeidec: {'OK' if cubeidec and os.path.exists(cubeidec) else 'MISSING'}"
+                 f"\n   {cubeidec}")
+    if tc == "cubeide":
+        proj, cfg, msg = core.find_cubeide_project()
+        lines.append(f"CubeIDE project: {proj + ' [' + cfg + ']' if proj else msg}")
 
     lines.append("")
     bdir = core.get_build_dir()
@@ -98,24 +104,25 @@ def show_build_dir() -> str:
 
 @mcp.tool
 def set_toolchain(name: str = "") -> str:
-    """빌드 툴체인을 GCC / IAR / CMake 로 강제 지정합니다 (비우면 자동 감지로 되돌림).
-    Force the build toolchain to GCC, IAR, or CMake for this session
+    """빌드 툴체인을 GCC / IAR / CMake / CubeIDE 로 강제 지정합니다 (비우면 자동 감지로 되돌림).
+    Force the build toolchain to GCC, IAR, CMake or STM32CubeIDE (headless) for this session
     (empty = auto-detect).
 
     사용 예 / Use for: "IAR로 빌드하게 해줘", "GCC로 바꿔줘", "툴체인 IAR",
-    "CMake로 빌드해줘", "use IAR", "switch to GCC", "use CMake", "set toolchain".
+    "CMake로 빌드해줘", "CubeIDE로 빌드해줘", "use IAR", "switch to GCC", "use CMake",
+    "use CubeIDE", "set toolchain".
     기본은 자동 감지(빌드 폴더에 CMakeCache.txt -> CMake, Makefile -> GCC,
-    근처 .ewp -> IAR)이며, 감지가 틀릴 때만 이 도구로 고정하세요.
-    Auto-detect is the default (CMakeCache.txt -> CMake, Makefile -> GCC,
-    nearby .ewp -> IAR); use this only to override when detection is wrong.
+    .cproject -> CubeIDE, 근처 .ewp -> IAR)이며, 감지가 틀릴 때만 이 도구로 고정하세요.
+    Auto-detect is the default (CMakeCache.txt -> CMake, Makefile -> GCC, .cproject ->
+    CubeIDE, nearby .ewp -> IAR); use this only to override when detection is wrong.
 
     Args:
-        name: "gcc", "iar", 또는 "cmake" / "gcc", "iar", or "cmake".
+        name: "gcc", "iar", "cmake" 또는 "cubeide".
             비우면 override 해제(자동) / empty clears the override.
     """
     n = (name or "").strip().lower()
-    if n and n not in ("gcc", "iar", "cmake"):
-        return f"Error: unknown toolchain {name!r}. Use 'gcc', 'iar', or 'cmake' (or empty for auto)."
+    if n and n not in core.TOOLCHAINS:
+        return f"Error: unknown toolchain {name!r}. Use 'gcc', 'iar', 'cmake' or 'cubeide' (or empty for auto)."
     core.set_toolchain_override(n)
     if not n:
         return (f"툴체인 override 해제 / cleared. Now auto-resolves to: "
@@ -127,6 +134,12 @@ def set_toolchain(name: str = "") -> str:
             extra = "\n   Warning: iarbuild.exe not found - set STM32_IAR_ROOT/STM32_IARBUILD."
         ewp = core.find_iar_project()
         extra += f"\n   IAR project: {ewp}" if ewp else "\n   IAR project: (not found - use set_iar_project)"
+    if n == "cubeide":
+        exe = core.find_cubeidec()
+        if not exe:
+            extra = "\n   Warning: stm32cubeidec.exe not found - install STM32CubeIDE or set STM32_CUBEIDEC."
+        proj, cfg, msg = core.find_cubeide_project()
+        extra += f"\n   CubeIDE project: {proj} [{cfg}]" if proj else f"\n   {msg}"
     return f"툴체인 설정됨 / toolchain set: {n.upper()}{extra}"
 
 

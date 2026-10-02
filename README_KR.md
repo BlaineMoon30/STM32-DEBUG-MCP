@@ -112,14 +112,21 @@ check_setup 실행해줘            # 경로 자동 탐색 + 빌드 폴더 출�
 세션 없이 운영 중 보드 SPI1 해석해줘      # HotPlug 페리페럴
 ```
 
-### 툴체인: GCC(Makefile/CMake) 또는 IAR EWARM
+### 툴체인: GCC(Makefile/CMake), STM32CubeIDE 또는 IAR EWARM
 
-`build` 는 두 가지 툴체인을 지원하며 자동으로 선택합니다.
+`build` 는 아래 툴체인을 지원하며 자동으로 선택합니다.
 
 - **GCC** — 빌드 폴더에 `Makefile` 이 있으면 → `make -j4 all` → `.elf` 생성.
 - **IAR EWARM** — 근처에 IAR 프로젝트(`.ewp`)가 있으면 →
   `iarbuild.exe <proj.ewp> -make <config>` → `.out` 생성(이 역시 ELF/DWARF).
   `iarbuild.exe` 는 자동 탐색됩니다(예: `C:/iar/ewarm-9.60.4/common/bin/iarbuild.exe`).
+- **STM32CubeIDE (headless)** — 빌드 폴더(또는 그 상위)에 `.cproject` 가 있고 아직 Makefile 이
+  없으면 → `stm32cubeidec.exe ... headlessbuild -import <프로젝트> -build <이름>/<구성>` 을 전용
+  workspace(`.cubeide_ws/`)에서 실행 → `.elf` 생성. `iarbuild.exe` 가 없을 때도 IAR 대신 선택됩니다
+  (ST 예제는 EWARM, MDK-ARM, STM32CubeIDE 프로젝트를 함께 제공). `stm32cubeidec.exe` 는
+  `C:/ST/STM32CubeIDE_*` 에서 자동 탐색합니다(또는 `STM32_CUBEIDEC`).
+  Boot + Appli 2단 예제는 프로젝트가 두 개이므로 `set_build_dir(".../STM32CubeIDE/Appli/Debug")` 로
+  하나를 고릅니다. 생성된 makefile 이 이미 있어도 `set_toolchain("cubeide")` 로 강제할 수 있습니다.
 
 IAR `.out` 은 표준 ELF(DWARF 심볼 포함)이므로 플래시와 OpenOCD + GDB 디버그
 스택이 그대로 동작합니다. 즉 `flash`, `start_debug`, 브레이크포인트, 레지스터 등

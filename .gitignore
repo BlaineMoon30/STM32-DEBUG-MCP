@@ -11,3 +11,6 @@ venv/
 .idea/
 .vscode/
 .DS_Store
+
+# STM32CubeIDE headless build workspaces (build tool)
+.cubeide_ws/

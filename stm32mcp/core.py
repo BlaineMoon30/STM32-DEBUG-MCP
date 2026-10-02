@@ -282,15 +282,16 @@ def no_build_dir_msg():
 #   priority: set_toolchain override > STM32_TOOLCHAIN env > auto-detect
 # An IAR project (.ewp) nearby (and no Makefile) auto-selects the IAR path.
 # ====================================================================
-_toolchain_override = None     # "gcc" | "iar" | "cmake" | None
+TOOLCHAINS = ("gcc", "iar", "cmake", "cubeide")
+_toolchain_override = None     # one of TOOLCHAINS | None
 _iar_project_override = None   # explicit path to a .ewp (set_iar_project)
 
 
 def set_toolchain_override(name):
-    """Set ('gcc'/'iar'/'cmake') or clear (None/'') the runtime toolchain override."""
+    """Set ('gcc'/'iar'/'cmake'/'cubeide') or clear (None/'') the runtime toolchain override."""
     global _toolchain_override
     name = (name or "").strip().lower()
-    _toolchain_override = name if name in ("gcc", "iar", "cmake") else None
+    _toolchain_override = name if name in TOOLCHAINS else None
 
 
 def set_iar_project_override(path):
@@ -322,32 +323,159 @@ def find_iar_project():
 
 
 def get_toolchain():
-    """Return the active build toolchain: 'gcc', 'iar', or 'cmake'."""
-    if _toolchain_override in ("gcc", "iar", "cmake"):
+    """Return the active build toolchain: 'gcc', 'iar', 'cmake' or 'cubeide'."""
+    if _toolchain_override in TOOLCHAINS:
         return _toolchain_override
     env = (os.environ.get("STM32_TOOLCHAIN") or "").strip().lower()
-    if env in ("gcc", "iar", "cmake"):
+    if env in TOOLCHAINS:
         return env
     # Auto-detect: a CMake build dir (Ninja or Makefiles generator) means CMake;
-    # a plain Makefile means GCC; otherwise an IAR project (.ewp) nearby means
-    # IAR. Default to GCC.
+    # a Makefile means GCC; a build dir inside an STM32CubeIDE project (.cproject)
+    # that has no Makefile yet means a CubeIDE headless build; an IAR project
+    # (.ewp) nearby means IAR - but not when iarbuild is missing and a CubeIDE
+    # project is there (ST examples ship EWARM, MDK-ARM and STM32CubeIDE side by side).
     bdir = get_build_dir()
     if bdir and os.path.isfile(os.path.join(bdir, "CMakeCache.txt")):
         return "cmake"
     if bdir and os.path.isfile(os.path.join(bdir, "Makefile")):
         return "gcc"
-    if find_iar_project():
+    if bdir and _cproject_dir_of(bdir):
+        return "cubeide"
+    iar_ok = bool(PATHS.get("iarbuild") and os.path.exists(PATHS["iarbuild"]))
+    cube = find_cubeide_project()[0]
+    if find_iar_project() and (iar_ok or not cube):
         return "iar"
+    if cube:
+        return "cubeide"
     return "gcc"
 
 
 def toolchain_source():
     """Return a label describing how the toolchain was resolved."""
-    if _toolchain_override in ("gcc", "iar", "cmake"):
+    if _toolchain_override in TOOLCHAINS:
         return "set_toolchain override"
-    if (os.environ.get("STM32_TOOLCHAIN") or "").strip().lower() in ("gcc", "iar", "cmake"):
+    if (os.environ.get("STM32_TOOLCHAIN") or "").strip().lower() in TOOLCHAINS:
         return "STM32_TOOLCHAIN env"
     return "auto-detected"
+
+
+# ====================================================================
+# STM32CubeIDE managed-build projects (.cproject) - headless build
+# ====================================================================
+_cubeidec = None   # cached path of stm32cubeidec.exe
+
+
+def find_cubeidec():
+    """stm32cubeidec.exe (the console launcher of STM32CubeIDE): STM32_CUBEIDEC env, then the newest
+    install under the CubeIDE roots (C:/ST/STM32CubeIDE_x.y.z/STM32CubeIDE/...)."""
+    global _cubeidec
+    env = os.environ.get("STM32_CUBEIDEC")
+    if env:
+        return env
+    if _cubeidec and os.path.exists(_cubeidec):
+        return _cubeidec
+    hits = []
+    for root in [r for r in _CUBEIDE_CANDIDATES if r and os.path.isdir(r)]:
+        for pat in ("stm32cubeidec.exe", os.path.join("STM32CubeIDE", "stm32cubeidec.exe"),
+                    os.path.join("STM32CubeIDE*", "STM32CubeIDE", "stm32cubeidec.exe")):
+            hits += glob.glob(os.path.join(root, pat))
+    if not hits:
+        return None
+    hits.sort(key=_version_key)
+    _cubeidec = hits[-1].replace("\\", "/")
+    return _cubeidec
+
+
+def _cproject_dir_of(path):
+    """The CubeIDE project dir for a build dir: the dir itself or its parent when it holds a .cproject."""
+    if not path:
+        return None
+    path = os.path.abspath(path)
+    for d in (path, os.path.dirname(path)):
+        if os.path.isfile(os.path.join(d, ".cproject")) and os.path.isfile(os.path.join(d, ".project")):
+            return d
+    return None
+
+
+def find_cubeide_project():
+    """(project_dir, config, message) of the STM32CubeIDE project to build.
+
+    From the build dir: '<project>/Debug' -> (<project>, 'Debug') - the folder need not exist yet. Without
+    a build dir, the only .cproject under the current dir; several -> (None, None, list to choose from)."""
+    bdir = get_build_dir()
+    proj = _cproject_dir_of(bdir)
+    if proj:
+        cfg = "Debug" if os.path.abspath(proj) == os.path.abspath(bdir) else os.path.basename(os.path.abspath(bdir))
+        return proj.replace("\\", "/"), cfg, ""
+    hits = []
+    for root, dirs, files in os.walk(os.getcwd()):
+        dirs[:] = [d for d in dirs if d not in (".git", "node_modules", ".vscode", "Debug", "Release")]
+        if ".cproject" in files and ".project" in files:
+            hits.append(root.replace("\\", "/"))
+            if len(hits) > 20:
+                break
+    if len(hits) == 1:
+        return hits[0], "Debug", ""
+    if not hits:
+        return None, None, "no STM32CubeIDE project (.cproject) found under " + os.getcwd().replace("\\", "/")
+    return None, None, ("several STM32CubeIDE projects found - pick one with set_build_dir('<project>/Debug'):\n  "
+                        + "\n  ".join(hits[:20]) + ("\n  ..." if len(hits) > 20 else ""))
+
+
+def cubeide_project_name(project_dir):
+    try:
+        with open(os.path.join(project_dir, ".project"), encoding="utf-8", errors="replace") as f:
+            m = re.search(r"<name>\s*([^<]+?)\s*</name>", f.read())
+        return m.group(1) if m else os.path.basename(project_dir)
+    except OSError:
+        return os.path.basename(project_dir)
+
+
+_CUBEIDE_WS_ROOT = os.environ.get("STM32_CUBEIDE_WS") or os.path.join(
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__))), ".cubeide_ws")
+
+
+def run_cubeide_build(project_dir, config="Debug", clean=False, timeout=1200):
+    """Headless build of a CubeIDE project (org.eclipse.cdt.managedbuilder.core.headlessbuild).
+
+    A private workspace per project keeps it independent of an open CubeIDE GUI. Paths are passed
+    in Windows form: Eclipse reads 'C:/x' as a URI with scheme 'C' ("No file system is defined for
+    scheme: C") and the import fails."""
+    exe = find_cubeidec()
+    if not exe or not os.path.exists(exe):
+        return "Error: stm32cubeidec.exe not found. Install STM32CubeIDE or set STM32_CUBEIDEC."
+    name = cubeide_project_name(project_dir)
+    import hashlib
+    tag = hashlib.md5(os.path.abspath(project_dir).lower().encode()).hexdigest()[:8]
+    ws = os.path.normpath(os.path.join(_CUBEIDE_WS_ROOT, f"{name}_{tag}"))
+    os.makedirs(ws, exist_ok=True)
+    args = [os.path.normpath(exe), "--launcher.suppressErrors", "-nosplash",
+            "-application", "org.eclipse.cdt.managedbuilder.core.headlessbuild", "-data", ws]
+    known = os.path.isdir(os.path.join(ws, ".metadata", ".plugins", "org.eclipse.core.resources", ".projects", name))
+    if not known:
+        args += ["-import", os.path.normpath(project_dir)]
+    args += ["-cleanBuild" if clean else "-build", f"{name}/{config}"]
+    out = run(args, timeout=timeout)
+    return summarize_cubeide_log(out)
+
+
+def summarize_cubeide_log(out, tail=25):
+    """Keep what matters from the Eclipse console: compiler diagnostics, size table, result lines."""
+    if out.startswith("Error:"):
+        return out
+    keep = []
+    lines = out.splitlines()
+    for i, ln in enumerate(lines):
+        s = ln.strip()
+        if (re.search(r"\b(error|warning):", s) or "**** " in s or s.startswith("Finished building target")
+                or re.search(r"Build (Finished|Failed)", s) or "No rule to make target" in s
+                or "text\tdata" in ln or re.match(r"^\s*\d+\s+\d+\s+\d+\s+\d+\s+[0-9a-f]+\s+\S+\.elf", ln)
+                or s.startswith(("Errors occurred", "Java was started"))):
+            keep.append(ln)
+    if not keep:
+        keep = lines[-tail:]
+    failed = any(re.search(r"Build Failed|No rule to make target|\berror:", k) for k in keep)
+    return ("BUILD FAILED\n" if failed else "") + "\n".join(keep[-200:])
 
 
 def run_iarbuild(ewp, config, action="-make", timeout=900):
@@ -432,7 +560,9 @@ def gnu_tools_env():
 def run(cmd, cwd=None, timeout=180, env=None):
     """Run a command and return combined stdout + stderr (never raises)."""
     try:
-        r = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout, cwd=cwd,
+        # errors="replace": tool output in another code page (e.g. Eclipse console on a Korean Windows)
+        # must not turn a finished build into a UnicodeDecodeError
+        r = subprocess.run(cmd, capture_output=True, text=True, errors="replace", timeout=timeout, cwd=cwd,
                            env=env)
         return (r.stdout or "") + (r.stderr or "")
     except subprocess.TimeoutExpired:

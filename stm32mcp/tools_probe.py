@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: MIT
 """tools_probe - probe info, build, flash, erase, and chip detection tools."""
 
+import glob
 import os
 
 from . import core
@@ -35,27 +36,34 @@ def probe_details() -> str:
 
 @mcp.tool
 def build(config: str = "", clean: bool = False) -> str:
-    """프로젝트를 빌드해 펌웨어 이미지를 생성합니다 (CMake / GCC make / IAR EWARM 자동 선택).
-    Build the project to produce the firmware image (CMake, GCC make or IAR
-    EWARM, auto-selected by toolchain).
+    """프로젝트를 빌드해 펌웨어 이미지를 생성합니다 (CMake / GCC make / STM32CubeIDE / IAR EWARM 자동 선택).
+    Build the project to produce the firmware image (CMake, GCC make, STM32CubeIDE
+    headless or IAR EWARM, auto-selected by toolchain).
 
     사용 예 / Use for: "빌드해줘", "컴파일해줘", "build", "compile",
-    "IAR로 빌드해줘", "Release 빌드", "전체 다시 빌드".
+    "IAR로 빌드해줘", "CubeIDE 프로젝트 빌드", "Release 빌드", "전체 다시 빌드".
 
     툴체인은 자동 감지됩니다: 빌드 폴더에 CMakeCache.txt 가 있으면 CMake,
-    Makefile 이 있으면 GCC, 근처에 IAR 프로젝트(.ewp)가 있으면 IAR.
-    set_toolchain 으로 강제할 수 있습니다.
+    Makefile 이 있으면 GCC, 빌드 폴더(또는 그 상위)에 .cproject 가 있고 아직
+    Makefile 이 없으면 STM32CubeIDE headless, 근처에 IAR 프로젝트(.ewp)가 있으면 IAR
+    (iarbuild 가 없고 CubeIDE 프로젝트가 있으면 CubeIDE). set_toolchain 으로 강제할 수 있습니다.
     The toolchain is auto-detected: CMakeCache.txt in the build dir -> CMake;
-    a Makefile -> GCC; an IAR project (.ewp) nearby -> IAR. Force it with
-    set_toolchain.
+    a Makefile -> GCC; a build dir inside an STM32CubeIDE project (.cproject) with no
+    Makefile yet -> CubeIDE headless; an IAR project (.ewp) nearby -> IAR (CubeIDE when
+    iarbuild is missing and a .cproject is there). Force it with set_toolchain.
+    Boot + Appli examples are two CubeIDE projects: set_build_dir("<...>/STM32CubeIDE/Appli/Debug")
+    picks one (the folder need not exist before the first build).
 
-    CMake: cmake --build <dir> [--clean-first]  (.elf 생성 / produces .elf)
-           생성기 무관 / generator-agnostic (Ninja, Makefiles, ...)
-    GCC  : make -j4 [clean] all                 (.elf 생성 / produces .elf)
-    IAR  : iarbuild <proj.ewp> [-make|-build] <config>   (.out 생성 / produces .out)
+    CMake  : cmake --build <dir> [--clean-first]  (.elf 생성 / produces .elf)
+             생성기 무관 / generator-agnostic (Ninja, Makefiles, ...)
+    GCC    : make -j4 [clean] all                 (.elf 생성 / produces .elf)
+    CubeIDE: stm32cubeidec -application ...headlessbuild -import <proj> -build|-cleanBuild <name>/<config>
+             (전용 workspace 사용 / private workspace, .elf 생성 / produces .elf)
+    IAR    : iarbuild <proj.ewp> [-make|-build] <config>   (.out 생성 / produces .out)
 
     Args:
-        config: IAR 빌드 구성 이름(예: "Debug"/"Release"), 비우면 "Debug".
+        config: IAR / CubeIDE 빌드 구성 이름(예: "Debug"/"Release"), 비우면 "Debug"
+                (CubeIDE 는 빌드 폴더 이름). IAR / CubeIDE configuration name.
                 CMake 에서는 --config 로 전달됩니다(멀티구성 생성기에서만 의미).
                 GCC 에서는 무시됩니다. IAR configuration name; passed to CMake as
                 --config (only meaningful for multi-config generators);
@@ -65,6 +73,20 @@ def build(config: str = "", clean: bool = False) -> str:
                 True forces a full rebuild instead of an incremental one.
     """
     toolchain = core.get_toolchain()
+
+    if toolchain == "cubeide":
+        proj, cfg_default, msg = core.find_cubeide_project()
+        if not proj:
+            return msg
+        cfg = config or cfg_default
+        name = core.cubeide_project_name(proj)
+        out = core.run_cubeide_build(proj, cfg, clean=clean)
+        elfs = sorted(glob.glob(os.path.join(proj, cfg, "*.elf")), key=os.path.getmtime)
+        produced = f"\n\nProduced ELF: {elfs[-1].replace(os.sep, '/')}" if elfs else "\n\nWarning: no .elf found"
+        hint = ("" if core.get_build_dir() else
+                f"\n(set_build_dir('{proj}/{cfg}') makes flash/debug use this ELF)")
+        return (f"[STM32CubeIDE headless {'-cleanBuild' if clean else '-build'} {name}/{cfg}]  project: {proj}\n\n"
+                f"{out}{produced}{hint}")
 
     if toolchain == "iar":
         ewp = core.find_iar_project()

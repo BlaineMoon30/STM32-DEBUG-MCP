@@ -114,14 +114,21 @@ read memory at 0x20000000 without a debug session   # HotPlug, no halt
 decode SPI1 on the running board without a session   # HotPlug peripheral
 ```
 
-### Toolchain: GCC (Makefile/CMake) or IAR EWARM
+### Toolchain: GCC (Makefile/CMake), STM32CubeIDE or IAR EWARM
 
-`build` supports two toolchains and auto-selects between them:
+`build` supports these toolchains and auto-selects between them:
 
 - **GCC** — a `Makefile` in the build dir → `make -j4 all` → produces a `.elf`.
 - **IAR EWARM** — an IAR project (`.ewp`) nearby → `iarbuild.exe <proj.ewp> -make <config>`
   → produces a `.out` (also ELF/DWARF). `iarbuild.exe` is auto-detected (e.g.
   `C:/iar/ewarm-9.60.4/common/bin/iarbuild.exe`).
+- **STM32CubeIDE (headless)** — a build dir inside a CubeIDE project (`.cproject` in it or its
+  parent) with no Makefile yet → `stm32cubeidec.exe ... headlessbuild -import <project> -build <name>/<config>`
+  in a private workspace (`.cubeide_ws/`) → produces a `.elf`. Also chosen instead of IAR when
+  `iarbuild.exe` is missing (ST examples ship EWARM, MDK-ARM and STM32CubeIDE side by side).
+  `stm32cubeidec.exe` is auto-detected under `C:/ST/STM32CubeIDE_*` (or `STM32_CUBEIDEC`).
+  Two-stage examples (Boot + Appli) are two projects: `set_build_dir(".../STM32CubeIDE/Appli/Debug")`
+  picks one; `set_toolchain("cubeide")` forces it even when a generated makefile exists.
 
 Flashing and the whole OpenOCD + GDB debug stack work on the IAR `.out` unchanged
 (it is a standard ELF with DWARF symbols), so `flash`, `start_debug`, breakpoints,

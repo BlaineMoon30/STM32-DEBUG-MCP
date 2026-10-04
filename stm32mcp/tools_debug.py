@@ -75,7 +75,7 @@ def start_debug(elf_path: str = "", chip: str = "", probe_sn: str = "") -> str:
             return (
                 f"Error: chip auto-detection failed (Device name: {dev!r}).\n"
                 "Check the board connection, or specify chip directly "
-                "(e.g. chip='stm32f4x')."
+                "(e.g. chip='stm32f4x')." + core.probe_busy_hint("unable to connect")
             )
         cfg_base, core_name, tz = mapped
         cfg_full = os.path.join(scripts, "target", cfg_base + ".cfg")
@@ -153,6 +153,7 @@ def start_debug(elf_path: str = "", chip: str = "", probe_sn: str = "") -> str:
             f"Error: OpenOCD exited immediately (cfg: {target_cfg}).\n"
             "Usually a cfg name/path issue or ST-Link contention.\n"
             "(Make sure CubeIDE / CubeProgrammer GUI are closed.)\n\n" + err[:1800]
+            + core.probe_busy_hint(err + " unable to connect")
         )
 
     try:
@@ -176,8 +177,7 @@ def start_debug(elf_path: str = "", chip: str = "", probe_sn: str = "") -> str:
         oc_log = core.openocd_log_tail(1500)
         return (f"Error: GDB could not attach to OpenOCD ({info_line}).\n{tgt}\n\n"
                 "OpenOCD log tail:\n" + (oc_log or "(empty)") +
-                "\n\nIf the log says 'unable to connect to the target' or CubeProgrammer reports "
-                "DEV_USB_COMM_ERR, unplug/replug the ST-Link USB cable and retry.")
+                core.probe_busy_hint(oc_log + " unable to connect"))
 
     # Upstream OpenOCD halts the core on gdb-attach, but ST's st_scripts replace
     # that event with gdb_attach_hook, which does nothing on single-core parts
@@ -299,6 +299,8 @@ def cont() -> str:
     out = core.gdb_cmd("-exec-continue", timeout=10)
     time.sleep(0.5)
     loc = core.gdb_cmd("-stack-info-frame", timeout=5)
+    if "[error]" in loc and "running" in loc.lower():
+        loc = "running (stops at the next breakpoint; use halt to stop it now)"
     return f"[continue]\n{out}\n---\ncurrent state:\n{loc}"
 
 

@@ -602,6 +602,42 @@ def openocd_log_tail(chars=1800):
         return ""
 
 
+def other_probe_owner():
+    """Describe another program that holds the ST-Link (not our own session), or ''."""
+    import socket
+    try:
+        # stm32-log start_rtt runs its private OpenOCD with only a Tcl port (default 50666)
+        with socket.create_connection(("127.0.0.1", int(os.environ.get("STM32_LOG_TCL_PORT", "50666"))),
+                                      timeout=0.3):
+            return ("stm32-log's own OpenOCD (start_rtt) holds the probe -> stm32-log close_source('rtt') "
+                    "first, then start_rtt again afterwards (boot output up to the RTT buffer size is kept)")
+    except OSError:
+        pass
+    if os.name == "nt":
+        own = _openocd.pid if _openocd is not None else None
+        try:
+            out = subprocess.run(["tasklist", "/FI", "IMAGENAME eq openocd.exe", "/FO", "CSV", "/NH"],
+                                 capture_output=True, text=True, timeout=10).stdout
+        except Exception:  # noqa: BLE001
+            out = ""
+        pids = [int(m) for m in re.findall(r'"openocd\.exe","(\d+)"', out, re.I)]
+        if [p for p in pids if p != own]:
+            return "another openocd.exe is running (CubeIDE debug session, stm32-log start_rtt, ...)"
+    return ""
+
+
+def probe_busy_hint(text):
+    """If `text` looks like an ST-Link connect failure, say who may own the probe."""
+    if not re.search(r"DEV_CONNECT_ERR|DEV_USB_COMM_ERR|unable to connect|No STM32 target|"
+                     r"Unable to get core ID|open failed", text, re.I):
+        return ""
+    who = other_probe_owner()
+    if who:
+        return f"\n\nThe ST-Link is probably busy: {who}."
+    return ("\n\nIf nothing else uses the ST-Link (CubeIDE, CubeProgrammer GUI, stm32-log start_rtt), "
+            "unplug/replug its USB cable and retry.")
+
+
 def get_gdb():
     return _gdb
 

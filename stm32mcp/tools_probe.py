@@ -171,7 +171,7 @@ def flash(elf_path: str = "", run_after: bool = True, full_erase: bool = False) 
     out = core.run_cli(args, timeout=240)
     mode = "full-erase then flash" if full_erase else "flash (auto-erase)"
     run_s = " + reset/run" if run_after else " (halted)"
-    return f"[{mode}{run_s}]  ELF: {elf}\n\n{out}"
+    return f"[{mode}{run_s}]  ELF: {elf}\n\n{out}" + core.probe_busy_hint(out)
 
 
 @mcp.tool

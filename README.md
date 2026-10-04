@@ -209,6 +209,28 @@ From that one request, Claude runs the following automatically:
 
 ---
 
+## One debugger per SWD port (ST-LINK and TRACE32)
+
+On boards with an on-board ST-LINK (Nucleo, Discovery) a Lauterbach probe on the debug
+header shares the same SWDIO/SWCLK lines. Both may stay plugged in, but **only one may drive
+the port at a time**. The three servers enforce that:
+
+| While ... | refused |
+|---|---|
+| TRACE32 is connected (stm32-t32 `SYStem.Up` / `Attach` / `Go` / `Prepare`) | stm32-probe `flash` / `reset` / `start_debug` / hotplug reads / chip detection, stm32-log `start_rtt` |
+| an ST-LINK OpenOCD runs (stm32-probe session, stm32-log `start_rtt`, CubeIDE) | stm32-t32 connecting to the target |
+
+stm32-t32 writes `%TEMP%\stm32_debug_port.lock` (with the PowerView PID) while it is connected
+and removes it on `SYStem.Down` / `t32_quit`; a lock whose process is gone is ignored.
+UART logging (stm32-log `open_uart`) is never affected - the ST-LINK VCP is independent of SWD.
+Release with stm32-t32 `system_down` / `t32_quit`, or stm32-probe `stop_debug` / stm32-log `close_source`.
+
+> OpenOCD must be **shut down cleanly** (Tcl `shutdown`), never killed: a killed - or crashed -
+> OpenOCD does not close the ST-LINK, which then keeps driving SWD, and TRACE32 fails with
+> `SW-DP enable failed` until the ST-LINK is reconnected (any CubeProgrammer connect also frees it).
+> ST's OpenOCD also crashes when GDB disconnects while the core runs, so `stop_debug` stops
+> OpenOCD first and GDB second. Verified on NUCLEO-H723ZG + µTrace (2026-10-04).
+
 ## Known issues
 
 ### STM32N6 (e.g. STM32N6-DK): re-run firmware **without** `reset`

@@ -49,6 +49,9 @@ def start_debug(elf_path: str = "", chip: str = "", probe_sn: str = "") -> str:
         return "Error: pygdbmi not installed. Run 'py -m pip install pygdbmi' and restart."
     if core.get_openocd() is not None:
         return "A debug session is already running. Call stop_debug first."
+    busy = core.t32_owner()
+    if busy:
+        return busy
 
     openocd = core.PATHS.get("openocd")
     scripts = core.PATHS.get("scripts")
@@ -205,6 +208,31 @@ def stop_debug() -> str:
     사용 예 / Use for: "디버그 종료해줘", "세션 닫아줘", "stop debugging".
     """
     msg = []
+    proc = core.get_openocd()
+    graceful = None
+    if proc is not None:
+        # Shut OpenOCD down FIRST, through its Tcl port, while GDB is still attached.
+        #  - Exiting GDB first while the core runs makes ST's OpenOCD crash
+        #    (exit 0xC0000005) on the dropped GDB socket.
+        #  - terminate() is a hard kill on Windows.
+        # In both cases OpenOCD never closes the ST-LINK, which then keeps driving
+        # SWDIO/SWCLK: another debugger on the same header (TRACE32) fails with
+        # 'SW-DP enable failed', and the ST-LINK can end up in DEV_USB_COMM_ERR.
+        graceful = False
+        try:
+            import socket
+            with socket.create_connection(("127.0.0.1", 6666), timeout=5) as s:
+                s.sendall(b"shutdown")
+                s.recv(64)          # wait for the reply: closing at once drops the command
+            proc.wait(timeout=5)
+            graceful = proc.returncode == 0
+        except Exception:  # noqa: BLE001
+            try:
+                proc.terminate()
+                proc.wait(timeout=5)
+            except Exception:  # noqa: BLE001, S110
+                pass
+        core.set_openocd(None)
     gdb = core.get_gdb()
     if gdb is not None:
         try:
@@ -213,15 +241,9 @@ def stop_debug() -> str:
             pass
         core.set_gdb(None)
         msg.append("GDB stopped")
-    proc = core.get_openocd()
-    if proc is not None:
-        try:
-            proc.terminate()
-            proc.wait(timeout=5)
-        except Exception:  # noqa: BLE001, S110
-            pass
-        core.set_openocd(None)
-        msg.append("OpenOCD stopped")
+    if graceful is not None:
+        msg.append("OpenOCD stopped" + ("" if graceful else
+                   " (not cleanly - if another debugger cannot connect, replug the ST-LINK)"))
     return ", ".join(msg) or "No session to stop."
 
 

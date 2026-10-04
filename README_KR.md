@@ -205,6 +205,27 @@ RTT 가 무엇이고 어떻게 동작하는지는 stm32-log README 에 그림과
 
 ---
 
+## SWD 포트당 디버거는 하나 (ST-LINK 과 TRACE32)
+
+온보드 ST-LINK 이 있는 보드(Nucleo, Discovery)에서는 디버그 헤더에 꽂은 Lauterbach 프로브가 같은
+SWDIO/SWCLK 선을 씁니다. 둘 다 꽂혀 있어도 되지만 **동시에 포트를 쓰면 안 됩니다.** 세 서버가 이를 지킵니다.
+
+| 이 동안에는 | 거절됨 |
+|---|---|
+| TRACE32 가 타깃에 연결됨 (stm32-t32 `SYStem.Up` / `Attach` / `Go` / `Prepare`) | stm32-probe `flash` / `reset` / `start_debug` / hotplug 읽기 / 칩 감지, stm32-log `start_rtt` |
+| ST-LINK OpenOCD 가 실행 중 (stm32-probe 세션, stm32-log `start_rtt`, CubeIDE) | stm32-t32 의 타깃 연결 |
+
+stm32-t32 는 연결되어 있는 동안 `%TEMP%\stm32_debug_port.lock`(PowerView PID 포함)을 쓰고
+`SYStem.Down` / `t32_quit` 때 지웁니다. 프로세스가 이미 없는 lock 은 무시합니다.
+UART 로그(stm32-log `open_uart`)는 영향이 없습니다 - ST-LINK VCP 는 SWD 와 별개입니다.
+놓을 때는 stm32-t32 `system_down` / `t32_quit`, 또는 stm32-probe `stop_debug` / stm32-log `close_source`.
+
+> OpenOCD 는 **정상 종료**(Tcl `shutdown`)해야 하고 강제 종료하면 안 됩니다. 강제 종료되거나 크래시한
+> OpenOCD 는 ST-LINK 을 닫지 못해 ST-LINK 이 SWD 를 계속 잡고 있고, TRACE32 는 ST-LINK 을 다시 연결할
+> 때까지 `SW-DP enable failed` 로 실패합니다 (CubeProgrammer 로 한 번 연결해도 풀립니다).
+> ST 의 OpenOCD 는 코어 실행 중 GDB 가 끊기면 크래시하므로 `stop_debug` 는 OpenOCD 를 먼저, GDB 를
+> 나중에 끝냅니다. NUCLEO-H723ZG + µTrace 에서 확인 (2026-10-04).
+
 ## 알려진 이슈
 
 ### STM32N6 (예: STM32N6-DK): `reset` 하지 말고 펌웨어 다시 실행

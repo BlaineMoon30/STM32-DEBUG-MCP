@@ -579,6 +579,10 @@ def run_cli(args, timeout=120):
     cli = PATHS.get("cli")
     if not cli or not os.path.exists(cli):
         return "Error: STM32_Programmer_CLI not found. Set STM32_PROGRAMMER_CLI."
+    if any(str(a).lower().startswith("port=swd") or str(a).lower().startswith("port=jtag") for a in args):
+        busy = t32_owner()                  # connecting to the target over the ST-LINK
+        if busy:
+            return busy
     return run([cli, *args], timeout=timeout)
 
 
@@ -600,6 +604,46 @@ def openocd_log_tail(chars=1800):
             return f.read().decode(errors="ignore")[-chars:]
     except OSError:
         return ""
+
+
+# One debugger per SWD port: stm32-t32 holds this lock while TRACE32 is connected
+# to the target (on Nucleo/Discovery boards the Lauterbach probe and the on-board
+# ST-LINK share SWDIO/SWCLK, so they must never drive the port at the same time).
+PORT_LOCK = os.path.join(tempfile.gettempdir(), "stm32_debug_port.lock")
+
+
+def _pid_alive(pid):
+    if os.name != "nt":
+        try:
+            os.kill(pid, 0)
+            return True
+        except OSError:
+            return False
+    import ctypes
+    k32 = ctypes.windll.kernel32
+    h = k32.OpenProcess(0x1000, False, int(pid))        # PROCESS_QUERY_LIMITED_INFORMATION
+    if not h:
+        return False
+    code = ctypes.c_ulong()
+    ok = k32.GetExitCodeProcess(h, ctypes.byref(code))
+    k32.CloseHandle(h)
+    return bool(ok) and code.value == 259               # STILL_ACTIVE
+
+
+def t32_owner():
+    """'' or a refusal message when TRACE32 (stm32-t32) is connected to the target."""
+    import json
+    try:
+        with open(PORT_LOCK, encoding="utf-8") as f:
+            lock = json.load(f)
+    except (OSError, ValueError):
+        return ""
+    if not _pid_alive(lock.get("pid", 0)):
+        return ""                                       # stale: PowerView is gone
+    return (f"Error: the SWD port is in use by {lock.get('owner', 'TRACE32')} "
+            f"(cpu {lock.get('cpu') or '?'}, since {lock.get('since', '?')}). Only one debugger may "
+            "drive the target at a time - release TRACE32 first (stm32-t32 system_down or "
+            "t32_quit), then retry.")
 
 
 def other_probe_owner():

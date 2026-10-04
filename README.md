@@ -172,6 +172,12 @@ ideally without halting the firmware — handy for a board already running in th
 > (use `read_registers` inside a debug session). On some setups HotPlug may still
 > halt/reset — verify non-intrusiveness on your board.
 
+### Reset without a debug session
+`reset` also works when no debug session is open: the board is reset through
+CubeProgrammer (HOTPLUG connect) and keeps running (`halt_after` is ignored). That is
+the usual "reset and watch the boot log" step together with stm32-log
+(`mark` → `reset` → `wait_for`).
+
 ### RTT log during a debug session
 `rtt_server_start` switches on SEGGER RTT inside the running OpenOCD session (the control
 block address comes from the ELF's `_SEGGER_RTT` symbol) and serves an up-channel on a

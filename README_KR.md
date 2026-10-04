@@ -169,6 +169,11 @@ Release 구성으로 빌드해줘                # build(config="Release")
 > (디버그 세션의 `read_registers` 사용). 일부 환경에선 HotPlug가 그래도 halt/reset
 > 될 수 있으니 본인 보드에서 비침습 여부를 확인하세요.
 
+### 디버그 세션 없이 리셋
+`reset` 은 디버그 세션이 없어도 동작합니다. CubeProgrammer(HOTPLUG 연결)로 보드를 리셋하고
+바로 실행합니다(`halt_after` 무시). stm32-log 와 함께 "리셋하고 부팅 로그 보기"
+(`mark` → `reset` → `wait_for`)에 씁니다.
+
 ### 디버그 세션 중 RTT 로그
 `rtt_server_start` 는 실행 중인 OpenOCD 세션 안에서 SEGGER RTT 를 켜고(제어 블록 주소는
 ELF 의 `_SEGGER_RTT` 심볼) up 채널을 TCP 포트로 내보냅니다. `rtt_server_stop` 으로 끕니다.

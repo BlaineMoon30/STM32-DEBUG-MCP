@@ -265,7 +265,19 @@ def reset(halt_after: bool = True) -> str:
     halt_after=True(기본): 리셋 후 멈춘 상태 유지(브레이크포인트 걸기 좋음).
     halt_after=True (default): reset and stay halted.
     halt_after=False: 리셋 후 바로 실행 / reset and run immediately.
+    디버그 세션이 없으면 CubeProgrammer(HOTPLUG 연결)로 리셋하고 바로 실행합니다
+    (halt_after 무시). 로그 확인용 "리셋하고 부팅 로그 보기"에 씁니다.
+    Without a debug session the board is reset through CubeProgrammer and runs
+    (halt_after is ignored) - handy for "reset and watch the boot log" (stm32-log).
     """
+    if core.get_gdb() is None:
+        out = core.run_cli(["-c", "port=SWD", "mode=HOTPLUG", "-rst"], timeout=60)
+        ok = "reset is performed" in out.lower() or "MCU Reset" in out
+        head = ("[reset via CubeProgrammer, no debug session: target is running]"
+                if ok else "Error: reset via CubeProgrammer failed (no debug session).")
+        return head + "\n" + "\n".join(
+            ln for ln in out.splitlines() if re.search(r"reset|rror|ST-LINK SN|Device name", ln, re.I)
+        ) + ("" if ok else core.probe_busy_hint(out))
     if halt_after:
         return core.gdb_cmd("monitor reset halt")
     return core.gdb_cmd("monitor reset run")

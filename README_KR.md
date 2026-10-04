@@ -169,6 +169,21 @@ Release 구성으로 빌드해줘                # build(config="Release")
 > (디버그 세션의 `read_registers` 사용). 일부 환경에선 HotPlug가 그래도 halt/reset
 > 될 수 있으니 본인 보드에서 비침습 여부를 확인하세요.
 
+### 디버그 세션 중 RTT 로그
+`rtt_server_start` 는 실행 중인 OpenOCD 세션 안에서 SEGGER RTT 를 켜고(제어 블록 주소는
+ELF 의 `_SEGGER_RTT` 심볼) up 채널을 TCP 포트로 내보냅니다. `rtt_server_stop` 으로 끕니다.
+로그를 모으고·검색하고·기다리는 일은 [stm32-log](https://github.com/BlaineMoon30/STM32-LOG-MCP)
+서버가 합니다.
+
+```
+start_debug → rtt_server_start(port=19021) → (stm32-log) open_rtt(19021) → cont
+            → (stm32-log) read_log / wait_for("BOOT OK") / send("cmd")
+```
+
+펌웨어에 `SEGGER_RTT.c` 가 들어 있고 초기화가 끝나 있어야 합니다. 아직 블록을 못 찾으면
+`cont` 로 RTT 초기화 이후까지 실행한 뒤 `rtt_server_start` 를 다시 호출하세요.
+RTT 가 무엇이고 어떻게 동작하는지는 stm32-log README 에 그림과 함께 설명되어 있습니다.
+
 ### 예제: "런타임 중 HardFault, 직접 디버깅해줘"
 이 한마디로 Claude가 아래를 자동 수행합니다.
 1. `build` → `flash(run_after=False)` — 빌드 후 굽고 멈춘 채로

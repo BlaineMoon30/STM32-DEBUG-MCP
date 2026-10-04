@@ -137,13 +137,17 @@ def start_debug(elf_path: str = "", chip: str = "", probe_sn: str = "") -> str:
         "-f", f"target/{target_cfg}",
     ]
     try:
-        proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        # Log to a file, not a pipe: nobody drains a pipe during the session, and
+        # once its buffer fills OpenOCD blocks on write and the session hangs.
+        log_f = open(core.OPENOCD_LOG, "wb")
+        proc = subprocess.Popen(cmd, stdout=log_f, stderr=subprocess.STDOUT)
+        log_f.close()
     except Exception as e:  # noqa: BLE001
         return f"Error: failed to launch OpenOCD - {e}"
     core.set_openocd(proc)
     time.sleep(2.0)
     if proc.poll() is not None:
-        err = proc.stderr.read().decode(errors="ignore")
+        err = core.openocd_log_tail()
         core.set_openocd(None)
         return (
             f"Error: OpenOCD exited immediately (cfg: {target_cfg}).\n"
@@ -165,6 +169,15 @@ def start_debug(elf_path: str = "", chip: str = "", probe_sn: str = "") -> str:
     elf_norm = os.path.abspath(elf).replace("\\", "/")
     sym = core.gdb_cmd(f'-file-exec-and-symbols "{elf_norm}"')
     tgt = core.gdb_cmd(f"-target-select extended-remote localhost:{core.GDB_PORT}")
+    if "[error]" in tgt or "(no result record" in tgt:
+        # OpenOCD is up but could not reach the core (or GDB could not attach):
+        # do not report a half-dead session as started.
+        stop_debug()
+        oc_log = core.openocd_log_tail(1500)
+        return (f"Error: GDB could not attach to OpenOCD ({info_line}).\n{tgt}\n\n"
+                "OpenOCD log tail:\n" + (oc_log or "(empty)") +
+                "\n\nIf the log says 'unable to connect to the target' or CubeProgrammer reports "
+                "DEV_USB_COMM_ERR, unplug/replug the ST-Link USB cable and retry.")
 
     # Upstream OpenOCD halts the core on gdb-attach, but ST's st_scripts replace
     # that event with gdb_attach_hook, which does nothing on single-core parts

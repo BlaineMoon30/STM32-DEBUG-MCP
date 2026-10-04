@@ -36,6 +36,7 @@ import os
 import re
 import shutil
 import subprocess
+import tempfile
 import time
 
 from fastmcp import FastMCP
@@ -589,6 +590,18 @@ _gdb = None       # pygdbmi GdbController
 _active_cfg = None
 
 
+OPENOCD_LOG = os.path.join(tempfile.gettempdir(), "stm32_probe_openocd.log")
+
+
+def openocd_log_tail(chars=1800):
+    """Last `chars` characters of the current OpenOCD session log."""
+    try:
+        with open(OPENOCD_LOG, "rb") as f:
+            return f.read().decode(errors="ignore")[-chars:]
+    except OSError:
+        return ""
+
+
 def get_gdb():
     return _gdb
 
@@ -612,23 +625,62 @@ def set_active_cfg(cfg):
     _active_cfg = cfg
 
 
+_mi_token = 1000
+
+
 def gdb_cmd(command, timeout=20):
-    """Send a GDB/MI command and return the relevant response lines as text."""
+    """Send a GDB/MI command and return the relevant response lines as text.
+
+    The command is sent with an MI token and the reply is read until GDB's
+    result record for THAT token arrives (or `timeout` expires). pygdbmi's own
+    write() returns as soon as GDB's output pauses for ~0.2 s, so a slow
+    command (any OpenOCD 'monitor ...', e.g. 'monitor rtt start') used to come
+    back empty and its reply then showed up in the NEXT command's output.
+    """
+    global _mi_token
     if _gdb is None:
         return "Error: no debug session. Call start_debug first."
+    _mi_token += 1
+    token = _mi_token
     try:
-        try:
-            resp = _gdb.write(command, timeout_sec=timeout, raise_error_on_timeout=False)
-        except TypeError:
-            resp = _gdb.write(command, timeout_sec=timeout)
+        _gdb.write(f"{token}{command}", read_response=False)
     except Exception as e:  # noqa: BLE001
         return f"(no response / target running - {type(e).__name__})"
+    resp = []
+    done = False
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        try:
+            chunk = _gdb.get_gdb_response(timeout_sec=0.5, raise_error_on_timeout=False)
+        except Exception:  # noqa: BLE001
+            chunk = []
+        resp += chunk
+        if any(m.get("type") == "result" and m.get("token") == token for m in chunk):
+            done = True
+            break
+    if done:
+        # Collect trailing async records (e.g. *stopped right after ^running).
+        try:
+            resp += _gdb.get_gdb_response(timeout_sec=0.3, raise_error_on_timeout=False)
+        except Exception:  # noqa: BLE001, S110
+            pass
     lines = []
     for m in resp:
         t = m.get("type")
         payload = m.get("payload")
-        if t in ("result", "notify", "console") and payload:
+        if t == "result" and m.get("message") == "error":
+            msg = payload.get("msg", payload) if isinstance(payload, dict) else payload
+            lines.append(f"[error] {msg}")
+        elif t == "result" and m.get("token") == token and not payload:
+            lines.append(f"[{m.get('message')}]")          # e.g. [done] / [running]
+        elif t in ("result", "notify", "console", "target", "log") and payload:
+            if isinstance(payload, str):
+                payload = payload.rstrip("\n")
+                if t == "log" and payload.strip() == command.strip():
+                    continue                               # GDB echoing the CLI command
             lines.append(f"[{t}] {payload}")
+    if not done:
+        lines.append(f"(no result record within {timeout:g}s)")
     return "\n".join(lines)[:3000] or "(no response)"
 
 

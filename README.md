@@ -172,6 +172,21 @@ ideally without halting the firmware — handy for a board already running in th
 > (use `read_registers` inside a debug session). On some setups HotPlug may still
 > halt/reset — verify non-intrusiveness on your board.
 
+### RTT log during a debug session
+`rtt_server_start` switches on SEGGER RTT inside the running OpenOCD session (the control
+block address comes from the ELF's `_SEGGER_RTT` symbol) and serves an up-channel on a
+TCP port; `rtt_server_stop` turns it off. Collecting, searching and waiting on the log is
+done by the [stm32-log](https://github.com/BlaineMoon30/STM32-LOG-MCP) server:
+
+```
+start_debug → rtt_server_start(port=19021) → (stm32-log) open_rtt(19021) → cont
+            → (stm32-log) read_log / wait_for("BOOT OK") / send("cmd")
+```
+
+The firmware must link `SEGGER_RTT.c` and have initialised it; if the block is not found
+yet, `cont` past RTT init and call `rtt_server_start` again. What RTT is and how it works
+is explained, with diagrams, in the stm32-log README.
+
 ### Example: "a HardFault happened at runtime, debug it for me"
 From that one request, Claude runs the following automatically:
 1. `build` → `flash(run_after=False)` — build, flash, stay halted

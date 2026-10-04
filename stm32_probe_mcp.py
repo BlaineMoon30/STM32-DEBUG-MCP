@@ -37,6 +37,7 @@ The implementation is split into the `stm32mcp` package:
     tools_watch  - watch_read, watch_sample, set_watchpoint, list/delete breakpoints
     tools_svd    - read_peripheral, list_peripherals
     tools_hotplug- hotplug_read_memory, hotplug_read_peripheral
+    tools_rtt    - rtt_server_start, rtt_server_stop (RTT -> TCP port for stm32-log)
 
 Importing the tools_* modules registers their @mcp.tool functions onto the
 shared FastMCP instance in core. This file just imports them all and runs it.
@@ -72,6 +73,7 @@ from stm32mcp import tools_debug    # noqa: E402,F401
 from stm32mcp import tools_watch    # noqa: E402,F401
 from stm32mcp import tools_svd      # noqa: E402,F401
 from stm32mcp import tools_hotplug  # noqa: E402,F401
+from stm32mcp import tools_rtt      # noqa: E402,F401
 
 
 def main():

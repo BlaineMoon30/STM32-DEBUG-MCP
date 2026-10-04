@@ -19,10 +19,13 @@ Supported OS : Windows
 3. **Python 3.11+** 설치 (Microsoft Store 스텁 말고 python.org 정식본) — 권장 3.14.5
    - https://www.python.org/downloads/
    - 설치 시 "Add python.exe to PATH" 체크. 실행은 `py` 사용 권장
-4. 패키지 설치:
+4. 서버 전용 가상환경 만들기 (저장소 폴더에서 실행):
+   ```powershell
+   powershell -ExecutionPolicy Bypass -File .\install.ps1
    ```
-   py -m pip install fastmcp pygdbmi
-   ```
+   `.venv\` 를 만들고 그 안에 `requirements.txt` 를 설치한 뒤 서버를 등록합니다(Step 4).
+   서버는 시스템 Python 의 패키지를 쓰지 않으므로, 다른 작업에서 Python 이나
+   pip 패키지를 업그레이드/재설치해도 깨지지 않습니다.
 
 ---
 
@@ -32,7 +35,9 @@ Supported OS : Windows
 
 ```
 D:/STM32_MCP/
+├─ .venv/                 # install.ps1 이 생성 (다른 PC 로 복사하지 말 것)
 ├─ stm32_probe_mcp.py     # 진입점 — 이 파일을 실행/등록
+├─ install.ps1  register_mcp.py
 └─ stm32mcp/              # 실제 도구가 든 패키지 (.py 옆에 같이 둘 것)
    ├─ core.py  chips.py  svd.py
    └─ tools_setup.py  tools_probe.py  tools_debug.py
@@ -60,7 +65,7 @@ D:/STM32_MCP/
 ## Step 3. 동작 확인
 
 ```powershell
-py D:/STM32_MCP/stm32_probe_mcp.py
+D:/STM32_MCP/.venv/Scripts/python.exe D:/STM32_MCP/stm32_probe_mcp.py
 ```
 
 FastMCP 배너가 뜨면 정상 → `Ctrl+C` 로 종료.
@@ -69,12 +74,20 @@ FastMCP 배너가 뜨면 정상 → `Ctrl+C` 로 종료.
 
 ## Step 4. Claude Code에 등록
 
+`install.ps1` 이 이미 등록합니다. 폴더를 옮긴 뒤 등 직접 (재)등록하려면:
 ```powershell
-claude mcp add --scope user stm32-probe -- cmd /c py D:/STM32_MCP/stm32_probe_mcp.py
+.venv\Scripts\python.exe register_mcp.py                        # ~/.claude.json 에 기록 (user scope)
+.venv\Scripts\python.exe register_mcp.py --build-dir D:/myproj/Debug
+```
+
+또는 Claude CLI 로:
+```powershell
+claude mcp add --scope user stm32-probe -- D:/STM32_MCP/.venv/Scripts/python.exe D:/STM32_MCP/stm32_probe_mcp.py
 ```
 
 - `--scope user` : 모든 폴더에서 사용 가능
-- `cmd /c py` : Windows 필수 (그냥 `python`은 실패)
+- `py` / `python` 이 아니라 항상 `.venv` 의 python 을 지정하세요. 시스템 Python 에는
+  `fastmcp`, `pygdbmi` 가 없거나 나중에 지워지거나 버전이 바뀔 수 있습니다.
 
 연결 확인:
 ```powershell
@@ -85,12 +98,12 @@ claude mcp list      # "stm32-probe ... ✓ Connected" 확인
 
 같은 서버를 Codex CLI에서도 등록할 수 있습니다. 터미널에서 입력:
 ```powershell
-codex mcp add stm32-probe -- cmd /c py D:\STM32_MCP\stm32_probe_mcp.py
+codex mcp add stm32-probe -- D:\STM32_MCP\.venv\Scripts\python.exe D:\STM32_MCP\stm32_probe_mcp.py
 ```
 
 또는 VSCode의 Codex 플러그인에서 아래 명령을 입력해 실행:
 ```
-codex mcp add stm32-probe -- cmd /c py D:\STM32_MCP\stm32_probe_mcp.py
+codex mcp add stm32-probe -- D:\STM32_MCP\.venv\Scripts\python.exe D:\STM32_MCP\stm32_probe_mcp.py
 ```
 
 ---
@@ -197,7 +210,7 @@ N6은 RAM 부팅(내부 유저 플래시 없음)이라 `reset` 으로는 RAM에 
 |------|------|
 | `py` 실행 시 `Python`만 출력 | 가짜 Python(스토어 스텁). python.org 정식본 설치 후 `py` 사용 |
 | 등록했는데 도구 안 보임 | `--scope user` 로 재등록 + **새 세션** 시작 |
-| `✗ Failed to connect` | 서버 직접 실행해 에러 확인 / `fastmcp` 설치 / `py` 사용 |
+| `✗ Failed to connect` | `.venv\Scripts\python.exe` 로 서버를 직접 실행해 에러 확인 / `install.ps1` 재실행 |
 | 플래시·디버그 실패 | CubeIDE·CubeProgrammer GUI 닫기 (ST-Link 점유 충돌) |
 | 경로 자동탐색 실패 | `check_setup` 으로 ❌ 항목 확인 → 환경변수 지정 (아래) |
 | "빌드 폴더를 찾지 못했습니다" | *"빌드 폴더를 .../Debug 로 지정해줘"*, 프로젝트 폴더에서 실행, 또는 `STM32_BUILD_DIR` 설정 |
@@ -208,8 +221,10 @@ claude mcp add --scope user stm32-probe ^
   -e STM32_CUBEIDE_ROOT=D:/Tools/ST/STM32CubeIDE_x ^
   -e STM32_SVD_DIR=D:/Tools/ST/STM32CubeCLT_x/STMicroelectronics_CMSIS_SVD ^
   -e STM32_BUILD_DIR=D:/myproj/STM32CubeIDE/Debug ^
-  -- cmd /c py D:/STM32_MCP/stm32_probe_mcp.py
+  -- D:/STM32_MCP/.venv/Scripts/python.exe D:/STM32_MCP/stm32_probe_mcp.py
 ```
+
+또는: `.venv\Scripts\python.exe register_mcp.py -e STM32_CUBEIDE_ROOT=... -e STM32_SVD_DIR=...`
 
 > `STM32_BUILD_DIR` 은 선택사항 — 생략하면 자동 탐색이 `.elf` 를 찾거나,
 > 실행 중 Claude에게 빌드 폴더를 말해주면 됩니다(`set_build_dir`).
@@ -219,10 +234,9 @@ claude mcp add --scope user stm32-probe ^
 ## 다른 PC로 이식
 
 1. CubeIDE + CubeCLT + 정식 Python 설치
-2. `py -m pip install fastmcp pygdbmi`
-3. `stm32_probe_mcp.py` **와** `stm32mcp/` 폴더를 함께 복사 (코드 수정 불필요)
-4. Step 4 등록 명령 실행
-5. 경로는 자동 탐색 → 막히면 `check_setup` 확인. 프로젝트 지정은
+2. 저장소를 `git clone` (또는 `.venv\` 를 **제외하고** 폴더 복사 — venv 는 이식 불가)
+3. `install.ps1` 실행 (`.venv` 생성, 패키지 설치, 서버 등록)
+4. 경로는 자동 탐색 → 막히면 `check_setup` 확인. 프로젝트 지정은
    *"빌드 폴더를 .../Debug 로 지정해줘"*, `STM32_BUILD_DIR`, 또는 프로젝트 폴더에서 실행.
 
 > 이제 수정할 코드가 없습니다 — 빌드 폴더와 모든 도구 경로가 자동으로 결정됩니다.

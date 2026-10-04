@@ -20,10 +20,13 @@ Supported OS : Windows
 3. **Python 3.11+** from python.org (NOT the Microsoft Store stub) — recommended 3.14.5
    - https://www.python.org/downloads/
    - Check "Add python.exe to PATH" during install. Use `py` to run.
-4. Install packages:
+4. Create the server's own virtual environment (run in the repo folder):
+   ```powershell
+   powershell -ExecutionPolicy Bypass -File .\install.ps1
    ```
-   py -m pip install fastmcp pygdbmi
-   ```
+   This creates `.venv\`, installs `requirements.txt` into it, and registers the server
+   (Step 4). The server never uses packages from the system Python, so upgrading or
+   reinstalling Python / pip packages elsewhere cannot break it.
 
 ---
 
@@ -33,7 +36,9 @@ Copy **both** of these into the same folder (e.g. `D:/STM32_MCP/`), side by side
 
 ```
 D:/STM32_MCP/
+├─ .venv/                 # created by install.ps1 (never copy it between PCs)
 ├─ stm32_probe_mcp.py     # entry point — run/register this
+├─ install.ps1  register_mcp.py
 └─ stm32mcp/              # package with the actual tools (keep next to the .py)
    ├─ core.py  chips.py  svd.py
    └─ tools_setup.py  tools_probe.py  tools_debug.py
@@ -61,7 +66,7 @@ resolved automatically at runtime, in this order:
 ## Step 3. Verify it runs
 
 ```powershell
-py D:/STM32_MCP/stm32_probe_mcp.py
+D:/STM32_MCP/.venv/Scripts/python.exe D:/STM32_MCP/stm32_probe_mcp.py
 ```
 
 A FastMCP banner means it works → press `Ctrl+C` to stop.
@@ -70,12 +75,20 @@ A FastMCP banner means it works → press `Ctrl+C` to stop.
 
 ## Step 4. Register with Claude Code
 
+`install.ps1` already does this. To (re)register by hand, e.g. after moving the folder:
 ```powershell
-claude mcp add --scope user stm32-probe -- cmd /c py D:/STM32_MCP/stm32_probe_mcp.py
+.venv\Scripts\python.exe register_mcp.py                        # writes ~/.claude.json (user scope)
+.venv\Scripts\python.exe register_mcp.py --build-dir D:/myproj/Debug
+```
+
+Or with the Claude CLI:
+```powershell
+claude mcp add --scope user stm32-probe -- D:/STM32_MCP/.venv/Scripts/python.exe D:/STM32_MCP/stm32_probe_mcp.py
 ```
 
 - `--scope user` : available in every folder
-- `cmd /c py` : required on Windows (plain `python` fails)
+- Always point at the `.venv` python, not `py` / `python`: the system Python may not have
+  (or may later lose or upgrade) `fastmcp` and `pygdbmi`.
 
 Verify connection:
 ```powershell
@@ -86,12 +99,12 @@ claude mcp list      # expect "stm32-probe ... ✓ Connected"
 
 Same server, Codex CLI. Run it in the terminal:
 ```powershell
-codex mcp add stm32-probe -- cmd /c py D:\STM32_MCP\stm32_probe_mcp.py
+codex mcp add stm32-probe -- D:\STM32_MCP\.venv\Scripts\python.exe D:\STM32_MCP\stm32_probe_mcp.py
 ```
 
 Or, in the VSCode Codex plugin, enter the same command:
 ```
-codex mcp add stm32-probe -- cmd /c py D:\STM32_MCP\stm32_probe_mcp.py
+codex mcp add stm32-probe -- D:\STM32_MCP\.venv\Scripts\python.exe D:\STM32_MCP\stm32_probe_mcp.py
 ```
 
 ---
@@ -201,7 +214,7 @@ firmware on an N6 board, **do not reset**. Instead:
 |---------|-----|
 | `py` prints only `Python` | Fake Python (Store stub). Install python.org build, use `py` |
 | Tools not visible after add | Re-register with `--scope user` + start a **new** session |
-| `✗ Failed to connect` | Run server directly to see the error / install `fastmcp` / use `py` |
+| `✗ Failed to connect` | Run the server with `.venv\Scripts\python.exe` to see the error / rerun `install.ps1` |
 | Flash/debug fails | Close CubeIDE & CubeProgrammer GUI (ST-Link contention) |
 | Auto-detect failed | Run `check_setup`, find ❌ items, set env vars (below) |
 | "Could not determine the build folder" | Say *"set the build dir to .../Debug"*, run from the project folder, or set `STM32_BUILD_DIR` |
@@ -212,8 +225,10 @@ claude mcp add --scope user stm32-probe ^
   -e STM32_CUBEIDE_ROOT=D:/Tools/ST/STM32CubeIDE_x ^
   -e STM32_SVD_DIR=D:/Tools/ST/STM32CubeCLT_x/STMicroelectronics_CMSIS_SVD ^
   -e STM32_BUILD_DIR=D:/myproj/STM32CubeIDE/Debug ^
-  -- cmd /c py D:/STM32_MCP/stm32_probe_mcp.py
+  -- D:/STM32_MCP/.venv/Scripts/python.exe D:/STM32_MCP/stm32_probe_mcp.py
 ```
+
+or: `.venv\Scripts\python.exe register_mcp.py -e STM32_CUBEIDE_ROOT=... -e STM32_SVD_DIR=...`
 
 > `STM32_BUILD_DIR` is optional — skip it and either let auto-detect find the `.elf`
 > or tell Claude the build folder at runtime (`set_build_dir`).
@@ -223,10 +238,9 @@ claude mcp add --scope user stm32-probe ^
 ## Moving to another PC
 
 1. Install CubeIDE + CubeCLT + real Python
-2. `py -m pip install fastmcp pygdbmi`
-3. Copy `stm32_probe_mcp.py` **and** the `stm32mcp/` folder together (no code edits needed)
-4. Run the Step 4 register command
-5. Paths auto-detect → if stuck, run `check_setup`. Point at your project with
+2. `git clone` the repo (or copy the folder **without** `.venv\`, a venv is not portable)
+3. Run `install.ps1` (creates `.venv`, installs packages, registers the server)
+4. Paths auto-detect → if stuck, run `check_setup`. Point at your project with
    *"set the build dir to .../Debug"*, `STM32_BUILD_DIR`, or by running from the project folder.
 
 > No code to edit anymore — the build folder and all tool paths are resolved automatically.
